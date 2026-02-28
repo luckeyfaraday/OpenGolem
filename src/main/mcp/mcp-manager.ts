@@ -167,9 +167,9 @@ export class MCPManager {
           }
         }
         
-        // Merge shell environment with process environment
-        // For most variables, use shell env (it's more complete)
-        env = { ...env, ...shellEnv };
+        // Merge shell environment safely: enrich missing runtime vars but never override
+        // config-sensitive keys that were already set by app runtime.
+        env = mergeShellEnvForMcp(env, shellEnv);
         
         // Special handling for PATH: merge both shell PATH and process PATH
         // This ensures we have both user tools (from shell) and system paths (from process)
@@ -226,8 +226,8 @@ export class MCPManager {
     const merged = { ...env, ...configEnv };
 
     // Fallback: if OpenAI key is still missing, hydrate from local Codex login.
-    // This keeps MCP vision tools usable when OpenAI provider relies on local `codex auth login`.
-    if (!merged.OPENAI_API_KEY) {
+    // Restrict hydration to OpenAI-leaning contexts so Anthropic/OpenRouter paths are not polluted.
+    if (!merged.OPENAI_API_KEY && shouldHydrateOpenAIFromLocalCodex(merged)) {
       const localCodex = importLocalAuthToken('codex');
       const localToken = localCodex?.token?.trim();
       if (localToken) {
@@ -1184,6 +1184,50 @@ export class MCPManager {
   async shutdown(): Promise<void> {
     await this.disconnectAll();
   }
+}
+
+function hasNonEmptyEnvValue(value: string | undefined): boolean {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isProtectedConfigEnvKey(key: string): boolean {
+  return (
+    key.startsWith('OPENAI_') ||
+    key.startsWith('ANTHROPIC_') ||
+    key.startsWith('CLAUDE_') ||
+    key.startsWith('COWORK_')
+  );
+}
+
+export function mergeShellEnvForMcp(
+  baseEnv: Record<string, string>,
+  shellEnv: Record<string, string>
+): Record<string, string> {
+  const merged = { ...baseEnv };
+  for (const [key, value] of Object.entries(shellEnv)) {
+    if (key === 'PATH') {
+      continue;
+    }
+    if (isProtectedConfigEnvKey(key)) {
+      continue;
+    }
+    if (hasNonEmptyEnvValue(merged[key])) {
+      continue;
+    }
+    if (typeof value === 'string' && value.length > 0) {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+export function shouldHydrateOpenAIFromLocalCodex(env: NodeJS.ProcessEnv): boolean {
+  return (
+    hasNonEmptyEnvValue(env.OPENAI_BASE_URL) ||
+    hasNonEmptyEnvValue(env.OPENAI_MODEL) ||
+    hasNonEmptyEnvValue(env.OPENAI_API_MODE) ||
+    env.OPENAI_CODEX_OAUTH === '1'
+  );
 }
 
 function extractStructuredToolErrorMessage(result: any): string {

@@ -3533,7 +3533,10 @@ function pickVisionApiKey(
     return openAIApiKey;
   }
   // OpenRouter historically reuses Anthropic-style key env vars.
-  return openAIApiKey || (isOpenRouter ? anthropicApiKey : undefined);
+  if (isOpenRouter) {
+    return anthropicApiKey || openAIApiKey;
+  }
+  return openAIApiKey;
 }
 
 /**
@@ -3551,13 +3554,17 @@ async function callVisionAPIWithTimeout(
   // Get API configuration from environment (supports Anthropic/OpenRouter/OpenAI-compatible)
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
   const openAIApiKey = process.env.OPENAI_API_KEY;
-  const hasOpenAIConfig = Boolean(process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL || process.env.OPENAI_MODEL);
-  const baseUrl = process.env.ANTHROPIC_BASE_URL || process.env.OPENAI_BASE_URL;
-  const model =
-    process.env.CLAUDE_MODEL ||
-    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-    process.env.OPENAI_MODEL ||
-    'claude-3-5-sonnet-20241022';
+  const openAIBaseUrl = process.env.OPENAI_BASE_URL?.trim();
+  const anthropicBaseUrl = process.env.ANTHROPIC_BASE_URL?.trim();
+  const openAIModel = process.env.OPENAI_MODEL?.trim();
+  const anthropicModel =
+    process.env.CLAUDE_MODEL?.trim() ||
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?.trim();
+  // NOTE: OPENAI_API_KEY may be auto-hydrated for MCP subprocess compatibility.
+  // Route inference must rely on semantic OpenAI hints (base/model), not key presence.
+  const hasOpenAIConfig = Boolean(openAIBaseUrl || openAIModel);
+  const baseUrl = openAIBaseUrl || anthropicBaseUrl;
+  const model = openAIModel || anthropicModel || 'claude-3-5-sonnet-20241022';
 
   // Check if using OpenRouter
   const isOpenRouter = !!baseUrl && (baseUrl.includes('openrouter.ai') || baseUrl.includes('openrouter'));
@@ -3753,15 +3760,17 @@ async function callVisionAPIWithTimeout(
   } else {
     // Use Anthropic API format
     const Anthropic = require('@anthropic-ai/sdk');
+    const anthropicRouteBaseUrl = anthropicBaseUrl || baseUrl;
+    const anthropicRouteModel = anthropicModel || model;
     const anthropic = new Anthropic({
       apiKey: selectedApiKey,
-      baseURL: baseUrl,
+      baseURL: anthropicRouteBaseUrl,
       timeout: timeoutMs,
     });
     
     // Wrap the API call with timeout promise
     const apiCallPromise = anthropic.messages.create({
-      model: model,
+      model: anthropicRouteModel,
       max_tokens: maxTokens,
       messages: [
         {
