@@ -107,9 +107,13 @@ export function useIPC() {
 
         case 'config.status':
           console.log('[useIPC] config.status received:', event.payload.isConfigured);
+          const isInitialConfigStatus = !store.hasSeenInitialConfigStatus;
           store.setIsConfigured(event.payload.isConfigured);
           store.setAppConfig(event.payload.config);
-          if (!event.payload.isConfigured) {
+          if (isInitialConfigStatus) {
+            store.markInitialConfigStatusSeen();
+          }
+          if (isInitialConfigStatus && !event.payload.isConfigured) {
             store.setShowConfigModal(true);
           }
           break;
@@ -124,6 +128,12 @@ export function useIPC() {
           store.setSandboxSyncStatus(event.payload);
           break;
 
+        case 'skills.storageChanged':
+          console.log('[useIPC] skills.storageChanged received:', event.payload.path, event.payload.reason);
+          store.setSkillsStorageChangeEvent(event.payload);
+          store.setSkillsStorageChangedAt(Date.now());
+          break;
+
         case 'workdir.changed':
           console.log('[useIPC] workdir.changed received:', event.payload.path);
           store.setWorkingDir(event.payload.path || null);
@@ -132,6 +142,14 @@ export function useIPC() {
         case 'error':
           console.error('[useIPC] Server error:', event.payload.message);
           store.setLoading(false);
+          if (event.payload.code === 'CONFIG_REQUIRED_ACTIVE_SET') {
+            store.setGlobalNotice({
+              id: `notice-config-required-${Date.now()}`,
+              type: 'warning',
+              message: event.payload.message,
+              action: event.payload.action === 'open_api_settings' ? 'open_api_settings' : undefined,
+            });
+          }
           break;
 
         default:

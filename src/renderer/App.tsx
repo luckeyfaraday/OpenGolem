@@ -10,7 +10,9 @@ import { ConfigModal } from './components/ConfigModal';
 import { Titlebar } from './components/Titlebar';
 import { SandboxSetupDialog } from './components/SandboxSetupDialog';
 import { SandboxSyncToast } from './components/SandboxSyncToast';
+import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import type { AppConfig } from './types';
+import type { GlobalNoticeAction } from './store';
 
 // Check if running in Electron
 const isElectronEnv = typeof window !== 'undefined' && window.electronAPI !== undefined;
@@ -23,12 +25,14 @@ function App() {
     showConfigModal,
     isConfigured,
     appConfig,
+    globalNotice,
     sandboxSetupProgress,
     isSandboxSetupComplete,
     sandboxSyncStatus,
     setShowConfigModal,
     setIsConfigured,
     setAppConfig,
+    clearGlobalNotice,
     setSandboxSetupComplete,
   } = useAppStore();
   const { listSessions, isElectron } = useIPC();
@@ -62,7 +66,7 @@ function App() {
     
     const result = await window.electronAPI.config.save(newConfig);
     if (result.success) {
-      setIsConfigured(true);
+      setIsConfigured(Boolean(result.config?.isConfigured));
       setAppConfig(result.config);
     }
   }, [setIsConfigured, setAppConfig]);
@@ -76,6 +80,13 @@ function App() {
   const handleSandboxSetupComplete = useCallback(() => {
     setSandboxSetupComplete(true);
   }, [setSandboxSetupComplete]);
+
+  const handleGlobalNoticeAction = useCallback((action: GlobalNoticeAction) => {
+    if (action === 'open_api_settings') {
+      setShowConfigModal(true);
+    }
+    clearGlobalNotice();
+  }, [clearGlobalNotice, setShowConfigModal]);
 
   // Determine if we should show the sandbox setup dialog
   // Show if there's progress and setup is not complete
@@ -122,6 +133,12 @@ function App() {
       
       {/* Sandbox Sync Toast */}
       <SandboxSyncToast status={sandboxSyncStatus} />
+
+      <GlobalNoticeToast
+        notice={globalNotice}
+        onDismiss={clearGlobalNotice}
+        onAction={handleGlobalNoticeAction}
+      />
       
       {/* AskUserQuestion is now rendered inline in MessageCard */}
     </div>

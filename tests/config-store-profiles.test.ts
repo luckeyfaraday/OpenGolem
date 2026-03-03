@@ -150,4 +150,15 @@ describe('ConfigStore provider profiles', () => {
     expect(openrouterView.apiKey).toBe('sk-or-new');
     expect(openrouterView.model).toBe('anthropic/claude-sonnet-4');
   });
+
+  it('treats global configured state as any set usable while active set can still be unusable', () => {
+    const store = new ConfigStore();
+
+    store.update({ provider: 'openrouter', apiKey: 'sk-or-global' });
+    store.createSet({ name: 'Blank Active', mode: 'blank' });
+
+    expect(store.hasUsableCredentialsForActiveSet()).toBe(false);
+    expect(store.hasAnyUsableCredentials()).toBe(true);
+    expect(store.isConfigured()).toBe(true);
+  });
 });

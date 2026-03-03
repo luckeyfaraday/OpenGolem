@@ -109,6 +109,50 @@ export interface TraceStep {
 export type TraceStepType = 'thinking' | 'text' | 'tool_call' | 'tool_result';
 export type TraceStepStatus = 'pending' | 'running' | 'completed' | 'error';
 
+export type ScheduleRepeatUnit = 'minute' | 'hour' | 'day';
+
+export interface ScheduleTask {
+  id: string;
+  title: string;
+  prompt: string;
+  cwd: string;
+  runAt: number;
+  nextRunAt: number | null;
+  repeatEvery: number | null;
+  repeatUnit: ScheduleRepeatUnit | null;
+  enabled: boolean;
+  lastRunAt: number | null;
+  lastRunSessionId: string | null;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ScheduleCreateInput {
+  title: string;
+  prompt: string;
+  cwd: string;
+  runAt: number;
+  nextRunAt?: number | null;
+  repeatEvery?: number | null;
+  repeatUnit?: ScheduleRepeatUnit | null;
+  enabled?: boolean;
+}
+
+export interface ScheduleUpdateInput {
+  title?: string;
+  prompt?: string;
+  cwd?: string;
+  runAt?: number;
+  nextRunAt?: number | null;
+  repeatEvery?: number | null;
+  repeatUnit?: ScheduleRepeatUnit | null;
+  enabled?: boolean;
+  lastRunAt?: number | null;
+  lastRunSessionId?: string | null;
+  lastError?: string | null;
+}
+
 // Skills types
 export interface Skill {
   id: string;
@@ -190,6 +234,12 @@ export interface PluginInstallResult {
   installedSkills: string[];
   skippedSkills: string[];
   errors: string[];
+}
+
+export interface SkillsStorageChangeEvent {
+  path: string;
+  reason: 'updated' | 'path_changed' | 'fallback' | 'watcher_error';
+  message?: string;
 }
 
 // Memory types
@@ -317,9 +367,10 @@ export type ServerEvent =
   | { type: 'config.status'; payload: { isConfigured: boolean; config: AppConfig } }
   | { type: 'sandbox.progress'; payload: SandboxSetupProgress }
   | { type: 'sandbox.sync'; payload: SandboxSyncStatus }
+  | { type: 'skills.storageChanged'; payload: SkillsStorageChangeEvent }
   | { type: 'plugins.runtimeApplied'; payload: { sessionId: string; plugins: Array<{ name: string; path: string }> } }
   | { type: 'workdir.changed'; payload: { path: string } }
-  | { type: 'error'; payload: { message: string } };
+  | { type: 'error'; payload: { message: string; code?: 'CONFIG_REQUIRED_ACTIVE_SET'; action?: 'open_api_settings' } };
 
 // Settings types
 export interface Settings {
@@ -393,6 +444,7 @@ export interface AppConfig {
   configSets: ApiConfigSet[];
   claudeCodePath?: string;
   defaultWorkdir?: string;
+  globalSkillsPath?: string;
   sandboxEnabled?: boolean;
   enableThinking?: boolean;
   isConfigured: boolean;

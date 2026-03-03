@@ -66,6 +66,9 @@ export interface AppConfig {
   // Optional: Default working directory
   defaultWorkdir?: string;
 
+  // Optional: Global skills storage directory
+  globalSkillsPath?: string;
+
   // Developer logs
   enableDevLogs: boolean;
 
@@ -140,6 +143,7 @@ const defaultConfig: AppConfig = {
   configSets: [defaultConfigSet],
   claudeCodePath: '',
   defaultWorkdir: '',
+  globalSkillsPath: '',
   enableDevLogs: true,
   sandboxEnabled: false,
   enableThinking: false,
@@ -618,6 +622,7 @@ export class ConfigStore {
       configSets,
       claudeCodePath: typeof raw.claudeCodePath === 'string' ? raw.claudeCodePath : defaultConfig.claudeCodePath,
       defaultWorkdir: typeof raw.defaultWorkdir === 'string' ? raw.defaultWorkdir : defaultConfig.defaultWorkdir,
+      globalSkillsPath: typeof raw.globalSkillsPath === 'string' ? raw.globalSkillsPath : defaultConfig.globalSkillsPath,
       enableDevLogs: toBoolean(raw.enableDevLogs, defaultConfig.enableDevLogs),
       sandboxEnabled: toBoolean(raw.sandboxEnabled, defaultConfig.sandboxEnabled),
       enableThinking: projected.enableThinking,
@@ -971,6 +976,7 @@ export class ConfigStore {
       ...projectedConfig,
       claudeCodePath: updates.claudeCodePath !== undefined ? updates.claudeCodePath : current.claudeCodePath,
       defaultWorkdir: updates.defaultWorkdir !== undefined ? updates.defaultWorkdir : current.defaultWorkdir,
+      globalSkillsPath: updates.globalSkillsPath !== undefined ? updates.globalSkillsPath : current.globalSkillsPath,
       enableDevLogs: updates.enableDevLogs !== undefined ? updates.enableDevLogs : current.enableDevLogs,
       sandboxEnabled: updates.sandboxEnabled !== undefined ? updates.sandboxEnabled : current.sandboxEnabled,
       isConfigured: updates.isConfigured !== undefined ? updates.isConfigured : current.isConfigured,
@@ -981,28 +987,56 @@ export class ConfigStore {
    * Check if the app is configured (has API key)
    */
   isConfigured(): boolean {
-    if (!this.store.get('isConfigured')) {
-      return false;
-    }
-    return this.hasUsableCredentials(this.getAll());
+    return this.hasAnyUsableCredentials(this.getAll());
   }
 
-  hasUsableCredentials(config: AppConfig = this.getAll()): boolean {
-    const activeProfile = config.profiles?.[config.activeProfileKey];
-    const activeApiKey = activeProfile?.apiKey ?? config.apiKey;
-    const activeBaseUrl = activeProfile?.baseUrl ?? config.baseUrl;
-    if (activeApiKey?.trim()) {
+  private hasUsableCredentialsForProjection(projection: {
+    provider: ProviderType;
+    customProtocol?: CustomProtocolType;
+    apiKey?: string;
+    baseUrl?: string;
+  }): boolean {
+    const apiKey = projection.apiKey?.trim();
+    if (apiKey) {
       return true;
     }
-    if (!isOpenAIProvider(config)) {
+    const protocol: CustomProtocolType = projection.customProtocol === 'openai' ? 'openai' : 'anthropic';
+    if (!isOpenAIProvider({ provider: projection.provider, customProtocol: protocol })) {
       return false;
     }
     return resolveOpenAICredentials({
-      provider: config.provider,
-      customProtocol: config.customProtocol,
-      apiKey: activeApiKey,
-      baseUrl: activeBaseUrl,
+      provider: projection.provider,
+      customProtocol: protocol,
+      apiKey: projection.apiKey,
+      baseUrl: projection.baseUrl,
     }) !== null;
+  }
+
+  hasUsableCredentials(config: AppConfig = this.getAll()): boolean {
+    return this.hasUsableCredentialsForActiveSet(config);
+  }
+
+  hasUsableCredentialsForActiveSet(config: AppConfig = this.getAll()): boolean {
+    const normalized = this.normalizeConfig(config);
+    return this.hasUsableCredentialsForProjection({
+      provider: normalized.provider,
+      customProtocol: normalized.customProtocol,
+      apiKey: normalized.apiKey,
+      baseUrl: normalized.baseUrl,
+    });
+  }
+
+  hasAnyUsableCredentials(config: AppConfig = this.getAll()): boolean {
+    const normalized = this.normalizeConfig(config);
+    return normalized.configSets.some((configSet) => {
+      const projected = this.projectFromConfigSet(configSet);
+      return this.hasUsableCredentialsForProjection({
+        provider: projected.provider,
+        customProtocol: projected.customProtocol,
+        apiKey: projected.apiKey,
+        baseUrl: projected.baseUrl,
+      });
+    });
   }
 
   /**

@@ -45,6 +45,7 @@ export function ContextPanel() {
     contextPanelCollapsed,
     toggleContextPanel,
     workingDir,
+    setGlobalNotice,
   } = useAppStore();
   const { getMCPServers, changeWorkingDir } = useIPC();
   const [progressOpen, setProgressOpen] = useState(true);
@@ -209,9 +210,12 @@ export function ContextPanel() {
                       onClick={async () => {
                         if (!canClick) return;
                         const revealed = await window.electronAPI.showItemInFolder(artifactPath, currentWorkingDir);
-                        if (!revealed && window.electronAPI?.openExternal) {
-                          const fallbackUrl = `file://${encodeURI(artifactPath)}`;
-                          void window.electronAPI.openExternal(fallbackUrl);
+                        if (!revealed) {
+                          setGlobalNotice({
+                            id: `artifact-reveal-failed-${Date.now()}`,
+                            type: 'warning',
+                            message: t('context.revealFailed'),
+                          });
                         }
                       }}
                       title={canClick ? artifactPath : undefined}

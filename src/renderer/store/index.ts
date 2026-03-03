@@ -1,6 +1,17 @@
 import { create } from 'zustand';
-import type { Session, Message, TraceStep, PermissionRequest, UserQuestionRequest, Settings, AppConfig, SandboxSetupProgress, SandboxSyncStatus } from '../types';
+import type { Session, Message, TraceStep, PermissionRequest, UserQuestionRequest, Settings, AppConfig, SandboxSetupProgress, SandboxSyncStatus, SkillsStorageChangeEvent } from '../types';
 import { applySessionUpdate } from '../utils/session-update';
+
+export type GlobalNoticeType = 'info' | 'warning' | 'error' | 'success';
+export type GlobalNoticeAction = 'open_api_settings';
+
+export interface GlobalNotice {
+  id: string;
+  message: string;
+  type: GlobalNoticeType;
+  actionLabel?: string;
+  action?: GlobalNoticeAction;
+}
 
 interface AppState {
   // Sessions
@@ -34,6 +45,8 @@ interface AppState {
   appConfig: AppConfig | null;
   isConfigured: boolean;
   showConfigModal: boolean;
+  hasSeenInitialConfigStatus: boolean;
+  globalNotice: GlobalNotice | null;
   
   // Working directory
   workingDir: string | null;
@@ -44,6 +57,8 @@ interface AppState {
   
   // Sandbox sync (per-session)
   sandboxSyncStatus: SandboxSyncStatus | null;
+  skillsStorageChangedAt: number;
+  skillsStorageChangeEvent: SkillsStorageChangeEvent | null;
   
   // Actions
   setSessions: (sessions: Session[]) => void;
@@ -80,6 +95,9 @@ interface AppState {
   setAppConfig: (config: AppConfig | null) => void;
   setIsConfigured: (configured: boolean) => void;
   setShowConfigModal: (show: boolean) => void;
+  markInitialConfigStatusSeen: () => void;
+  setGlobalNotice: (notice: GlobalNotice | null) => void;
+  clearGlobalNotice: () => void;
   
   // Working directory actions
   setWorkingDir: (path: string | null) => void;
@@ -90,6 +108,8 @@ interface AppState {
   
   // Sandbox sync actions
   setSandboxSyncStatus: (status: SandboxSyncStatus | null) => void;
+  setSkillsStorageChangedAt: (timestamp: number) => void;
+  setSkillsStorageChangeEvent: (event: SkillsStorageChangeEvent | null) => void;
 }
 
 const defaultSettings: Settings = {
@@ -138,10 +158,14 @@ export const useAppStore = create<AppState>((set) => ({
   appConfig: null,
   isConfigured: false,
   showConfigModal: false,
+  hasSeenInitialConfigStatus: false,
+  globalNotice: null,
   workingDir: null,
   sandboxSetupProgress: null,
   isSandboxSetupComplete: false,
   sandboxSyncStatus: null,
+  skillsStorageChangedAt: 0,
+  skillsStorageChangeEvent: null,
   
   // Session actions
   setSessions: (sessions) => set({ sessions }),
@@ -413,6 +437,9 @@ export const useAppStore = create<AppState>((set) => ({
   setAppConfig: (config) => set({ appConfig: config }),
   setIsConfigured: (configured) => set({ isConfigured: configured }),
   setShowConfigModal: (show) => set({ showConfigModal: show }),
+  markInitialConfigStatusSeen: () => set({ hasSeenInitialConfigStatus: true }),
+  setGlobalNotice: (notice) => set({ globalNotice: notice }),
+  clearGlobalNotice: () => set({ globalNotice: null }),
   
   // Working directory actions
   setWorkingDir: (path) => set({ workingDir: path }),
@@ -423,4 +450,6 @@ export const useAppStore = create<AppState>((set) => ({
   
   // Sandbox sync actions
   setSandboxSyncStatus: (status) => set({ sandboxSyncStatus: status }),
+  setSkillsStorageChangedAt: (timestamp) => set({ skillsStorageChangedAt: timestamp }),
+  setSkillsStorageChangeEvent: (event) => set({ skillsStorageChangeEvent: event }),
 }));

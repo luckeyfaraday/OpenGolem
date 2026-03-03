@@ -24,6 +24,12 @@ import { remoteManager, type AgentExecutor } from './remote/remote-manager';
 import { remoteConfigStore } from './remote/remote-config-store';
 import type { GatewayConfig, FeishuChannelConfig, ChannelType } from './remote/types';
 import {
+  ScheduledTaskManager,
+  type ScheduledTaskCreateInput,
+  type ScheduledTaskUpdateInput,
+} from './schedule/scheduled-task-manager';
+import { createScheduledTaskStore } from './schedule/scheduled-task-store';
+import {
   log,
   logWarn,
   logError,
@@ -61,6 +67,7 @@ let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager | null = null;
 let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
+let scheduledTaskManager: ScheduledTaskManager | null = null;
 
 async function waitForDevServer(url: string, maxAttempts = 30, intervalMs = 500): Promise<boolean> {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -92,26 +99,24 @@ if (!hasSingleInstanceLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.show();
-      mainWindow.focus();
-      log('[App] Blocked second instance and focused existing window');
+    const existingWindow = mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : BrowserWindow.getAllWindows().find((window) => !window.isDestroyed());
+
+    if (!existingWindow) {
+      logWarn('[App] Blocked second instance but no existing window to focus');
       return;
     }
 
-    log('[App] Blocked second instance and recreated main window');
-    if (app.isReady()) {
-      createWindow();
-      return;
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      mainWindow = existingWindow;
     }
-    void app.whenReady().then(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        createWindow();
-      }
-    });
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore();
+    }
+    existingWindow.show();
+    existingWindow.focus();
+    log('[App] Blocked second instance and focused existing window');
   });
 }
 
@@ -526,11 +531,38 @@ app.whenReady().then(async () => {
   const db = initDatabase();
 
   // Initialize skills manager
-  skillsManager = new SkillsManager(db);
+  skillsManager = new SkillsManager(db, {
+    getConfiguredGlobalSkillsPath: () => configStore.get('globalSkillsPath') || '',
+    setConfiguredGlobalSkillsPath: (nextPath: string) => {
+      configStore.update({ globalSkillsPath: nextPath });
+    },
+    watchStorage: true,
+  });
+  skillsManager.onStorageChanged((event) => {
+    sendToRenderer({
+      type: 'skills.storageChanged',
+      payload: event,
+    });
+  });
   pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
 
   // Initialize session manager
   sessionManager = new SessionManager(db, sendToRenderer, pluginRuntimeService);
+
+  const scheduledTaskStore = createScheduledTaskStore(db);
+  scheduledTaskManager = new ScheduledTaskManager({
+    store: scheduledTaskStore,
+    executeTask: async (task) => {
+      if (!sessionManager) {
+        throw new Error('Session manager not initialized');
+      }
+      const title = task.title?.trim() || '定时任务';
+      const started = await sessionManager.startSession(title, task.prompt, task.cwd);
+      return { sessionId: started.id };
+    },
+    now: () => Date.now(),
+  });
+  scheduledTaskManager.start();
 
   // 初始化远程管理器
   remoteManager.setRendererCallback(sendToRenderer);
@@ -580,6 +612,8 @@ async function cleanupSandboxResources(): Promise<void> {
   }
   isCleaningUp = true;
 
+  scheduledTaskManager?.stop();
+
   // 停止远程控制
   try {
     log('[App] Stopping remote control...');
@@ -616,6 +650,7 @@ async function cleanupSandboxResources(): Promise<void> {
 
 // Handle app quit - window-all-closed (primary for Windows/Linux)
 app.on('window-all-closed', async () => {
+  skillsManager?.stopStorageMonitoring();
   await cleanupSandboxResources();
 
   if (process.platform !== 'darwin') {
@@ -627,6 +662,7 @@ app.on('window-all-closed', async () => {
 app.on('before-quit', async (event) => {
   if (!isCleaningUp) {
     event.preventDefault();
+    skillsManager?.stopStorageMonitoring();
     await cleanupSandboxResources();
     closeLogFile(); // Close log file before quitting
     app.quit();
@@ -838,8 +874,8 @@ ipcMain.handle('config.getPresets', () => {
 });
 
 const syncConfigAfterMutation = () => {
-  // Mark as configured if current provider has usable credentials
-  configStore.set('isConfigured', configStore.hasUsableCredentials());
+  // Mark as configured if any config set has usable credentials
+  configStore.set('isConfigured', configStore.hasAnyUsableCredentials());
 
   // Apply to environment
   configStore.applyToEnv();
@@ -1144,6 +1180,40 @@ ipcMain.handle('skills.validate', async (_event, skillPath: string) => {
     logError('[Skills] Error validating skill:', error);
     return { valid: false, errors: ['Validation failed'] };
   }
+});
+
+ipcMain.handle('skills.getStoragePath', async () => {
+  if (!skillsManager) {
+    throw new Error('SkillsManager not initialized');
+  }
+  return skillsManager.getGlobalSkillsPath();
+});
+
+ipcMain.handle('skills.setStoragePath', async (_event, targetPath: string, migrate = true) => {
+  if (!skillsManager) {
+    throw new Error('SkillsManager not initialized');
+  }
+  const result = await skillsManager.setGlobalSkillsPath(targetPath, migrate !== false);
+  sendToRenderer({
+    type: 'config.status',
+    payload: {
+      isConfigured: configStore.isConfigured(),
+      config: configStore.getAll(),
+    },
+  });
+  return { success: true, ...result };
+});
+
+ipcMain.handle('skills.openStoragePath', async () => {
+  if (!skillsManager) {
+    throw new Error('SkillsManager not initialized');
+  }
+  const storagePath = skillsManager.getGlobalSkillsPath();
+  const openResult = await shell.openPath(storagePath);
+  if (openResult) {
+    return { success: false, path: storagePath, error: openResult };
+  }
+  return { success: true, path: storagePath };
 });
 
 ipcMain.handle('plugins.listCatalog', async (_event, options?: { installableOnly?: boolean }) => {
@@ -1724,6 +1794,46 @@ ipcMain.handle('remote.restart', async () => {
   }
 });
 
+ipcMain.handle('schedule.list', () => {
+  if (!scheduledTaskManager) return [];
+  return scheduledTaskManager.list();
+});
+
+ipcMain.handle('schedule.create', (_event, payload: ScheduledTaskCreateInput) => {
+  if (!scheduledTaskManager) {
+    throw new Error('Scheduled task manager not initialized');
+  }
+  return scheduledTaskManager.create(payload);
+});
+
+ipcMain.handle('schedule.update', (_event, id: string, updates: ScheduledTaskUpdateInput) => {
+  if (!scheduledTaskManager) {
+    throw new Error('Scheduled task manager not initialized');
+  }
+  return scheduledTaskManager.update(id, updates);
+});
+
+ipcMain.handle('schedule.delete', (_event, id: string) => {
+  if (!scheduledTaskManager) {
+    throw new Error('Scheduled task manager not initialized');
+  }
+  return { success: scheduledTaskManager.delete(id) };
+});
+
+ipcMain.handle('schedule.toggle', (_event, id: string, enabled: boolean) => {
+  if (!scheduledTaskManager) {
+    throw new Error('Scheduled task manager not initialized');
+  }
+  return scheduledTaskManager.toggle(id, enabled);
+});
+
+ipcMain.handle('schedule.runNow', async (_event, id: string) => {
+  if (!scheduledTaskManager) {
+    throw new Error('Scheduled task manager not initialized');
+  }
+  return scheduledTaskManager.runNow(id);
+});
+
 ipcMain.handle('logs.write', (_event, level: 'info' | 'warn' | 'error', args: any[]) => {
   try {
     if (level === 'warn') {
@@ -1794,14 +1904,14 @@ ipcMain.handle('sandbox.retrySetup', async () => {
 
 async function handleClientEvent(event: ClientEvent): Promise<unknown> {
   // Check if configured before starting sessions
-  if (event.type === 'session.start' && !configStore.isConfigured()) {
+  if (event.type === 'session.start' && !configStore.hasUsableCredentialsForActiveSet()) {
     sendToRenderer({
       type: 'error',
-      payload: { message: '请先配置 API Key，或先完成本地 Codex 登录并导入' },
-    });
-    sendToRenderer({
-      type: 'config.status',
-      payload: { isConfigured: false, config: configStore.getAll() },
+      payload: {
+        message: '当前方案未配置可用凭证，请先在 API 设置中完成配置',
+        code: 'CONFIG_REQUIRED_ACTIVE_SET',
+        action: 'open_api_settings',
+      },
     });
     return null;
   }

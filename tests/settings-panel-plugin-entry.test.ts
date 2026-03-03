@@ -18,6 +18,16 @@ describe('SettingsPanel skills plugin browse entry', () => {
     expect(settingsPanelContent).toContain("t('skills.pluginInstall')");
   });
 
+  it('functional: includes skills storage controls', () => {
+    expect(settingsPanelContent).toContain("t('skills.storagePathTitle')");
+    expect(settingsPanelContent).toContain("t('skills.selectStoragePath')");
+    expect(settingsPanelContent).toContain("t('skills.openStoragePath')");
+    expect(settingsPanelContent).toContain("t('skills.refreshSkills')");
+    expect(settingsPanelContent).toContain('window.electronAPI.skills.getStoragePath()');
+    expect(settingsPanelContent).toContain('window.electronAPI.skills.setStoragePath(folderPath, true)');
+    expect(settingsPanelContent).toContain('window.electronAPI.skills.openStoragePath()');
+  });
+
   it('functional: uses plugins API for catalog and management', () => {
     expect(settingsPanelContent).toContain('window.electronAPI.plugins.listCatalog');
     expect(settingsPanelContent).toContain('window.electronAPI.plugins.listInstalled');

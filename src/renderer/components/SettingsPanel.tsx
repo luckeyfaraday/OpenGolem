@@ -1,15 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Key, Plug, Settings, ChevronRight, AlertCircle, Eye, EyeOff, Plus, Trash2, Edit3, Save, Mail, Globe, Lock, Server, Cpu, Loader2, Power, PowerOff, CheckCircle, ChevronDown, Package, Languages, Shield, Wifi } from 'lucide-react';
+import { X, Key, Plug, Settings, ChevronRight, AlertCircle, Eye, EyeOff, Plus, Trash2, Edit3, Save, Mail, Globe, Lock, Server, Cpu, Loader2, Power, PowerOff, CheckCircle, ChevronDown, Package, Languages, Shield, Wifi, FolderOpen, RefreshCw, Clock3 } from 'lucide-react';
 import type {
   Skill,
   PluginCatalogItemV2,
   InstalledPlugin,
   PluginComponentKind,
+  ScheduleTask,
+  ScheduleRepeatUnit,
+  ScheduleCreateInput,
+  ScheduleUpdateInput,
 } from '../types';
 import { RemoteControlPanel } from './RemoteControlPanel';
 import { useApiConfigState } from '../hooks/useApiConfigState';
 import { ApiConfigSetManager } from './ApiConfigSetManager';
+import { useAppStore } from '../store';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -50,10 +55,10 @@ interface MCPServerStatus {
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'api' | 'sandbox' | 'credentials' | 'connectors' | 'skills' | 'remote' | 'logs' | 'language';
+  initialTab?: 'api' | 'sandbox' | 'credentials' | 'connectors' | 'skills' | 'schedule' | 'remote' | 'logs' | 'language';
 }
 
-type TabId = 'api' | 'sandbox' | 'credentials' | 'connectors' | 'skills' | 'remote' | 'logs' | 'language';
+type TabId = 'api' | 'sandbox' | 'credentials' | 'connectors' | 'skills' | 'schedule' | 'remote' | 'logs' | 'language';
 
 const SERVICE_OPTIONS = [
   { value: 'gmail', label: 'Gmail' },
@@ -100,6 +105,7 @@ export function SettingsPanel({ isOpen, onClose, initialTab = 'api' }: SettingsP
     { id: 'credentials' as TabId, label: t('settings.credentials'), icon: Key, description: t('settings.credentialsDesc') },
     { id: 'connectors' as TabId, label: t('settings.connectors'), icon: Plug, description: t('settings.connectorsDesc') },
     { id: 'skills' as TabId, label: t('settings.skills'), icon: Package, description: t('settings.skillsDesc') },
+    { id: 'schedule' as TabId, label: t('settings.schedule'), icon: Clock3, description: t('settings.scheduleDesc') },
     { id: 'remote' as TabId, label: t('settings.remote', '远程控制'), icon: Wifi, description: t('settings.remoteDesc', '通过飞书等平台远程使用') },
     { id: 'logs' as TabId, label: t('settings.logs'), icon: AlertCircle, description: t('settings.logsDesc') },
     { id: 'language' as TabId, label: t('settings.language'), icon: Languages, description: t('settings.languageDesc') },
@@ -172,6 +178,9 @@ export function SettingsPanel({ isOpen, onClose, initialTab = 'api' }: SettingsP
             </div>
             <div className={activeTab === 'skills' ? '' : 'hidden'}>
               {viewedTabs.has('skills') && <SkillsTab />}
+            </div>
+            <div className={activeTab === 'schedule' ? '' : 'hidden'}>
+              {viewedTabs.has('schedule') && <ScheduleTab />}
             </div>
             <div className={activeTab === 'remote' ? '' : 'hidden'}>
               {viewedTabs.has('remote') && <RemoteControlPanel />}
@@ -2306,7 +2315,10 @@ function ServerForm({
 
 function SkillsTab() {
   const { t } = useTranslation();
+  const skillsStorageChangedAt = useAppStore((state) => state.skillsStorageChangedAt);
+  const skillsStorageChangeEvent = useAppStore((state) => state.skillsStorageChangeEvent);
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [storagePath, setStoragePath] = useState('');
   const [plugins, setPlugins] = useState<PluginCatalogItemV2[]>([]);
   const [installedPluginsByKey, setInstalledPluginsByKey] = useState<Record<string, InstalledPlugin>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -2358,15 +2370,48 @@ function SkillsTab() {
 
   useEffect(() => {
     if (isElectron) {
-      loadSkills();
+      void loadSkills();
+    }
+
+    let refreshTimer: ReturnType<typeof setInterval> | null = null;
+    if (isElectron) {
+      refreshTimer = setInterval(() => {
+        void loadSkills(true);
+      }, 5000);
     }
 
     return () => {
       if (pluginToastTimerRef.current) {
         clearTimeout(pluginToastTimerRef.current);
       }
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (isElectron && skillsStorageChangedAt > 0) {
+      void loadSkills(true);
+    }
+  }, [skillsStorageChangedAt]);
+
+  useEffect(() => {
+    if (!skillsStorageChangeEvent) {
+      return;
+    }
+    if (skillsStorageChangeEvent.reason === 'fallback') {
+      setError(t('skills.storagePathFallback'));
+      return;
+    }
+    if (skillsStorageChangeEvent.reason === 'watcher_error') {
+      setError(
+        t('skills.storageWatcherError', {
+          message: skillsStorageChangeEvent.message || '',
+        })
+      );
+    }
+  }, [skillsStorageChangeEvent, t]);
 
   function showPluginInstallToast(message: string) {
     setPluginToastMessage(message);
@@ -2379,14 +2424,22 @@ function SkillsTab() {
     }, 5000);
   }
 
-  async function loadSkills() {
+  async function loadSkills(silent = false) {
     try {
-      const loaded = await window.electronAPI.skills.getAll();
+      const [loaded, nextStoragePath] = await Promise.all([
+        window.electronAPI.skills.getAll(),
+        window.electronAPI.skills.getStoragePath(),
+      ]);
       setSkills(loaded || []);
-      setError('');
+      setStoragePath(nextStoragePath || '');
+      if (!silent) {
+        setError('');
+      }
     } catch (err) {
       console.error('Failed to load skills:', err);
-      setError(t('skills.failedToLoad'));
+      if (!silent) {
+        setError(t('skills.failedToLoad'));
+      }
     }
   }
 
@@ -2453,6 +2506,61 @@ function SkillsTab() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('skills.failedToInstall'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleSelectStoragePath() {
+    try {
+      const folderPath = await window.electronAPI.invoke<string | null>({ type: 'folder.select', payload: {} });
+      if (!folderPath) return;
+
+      setIsLoading(true);
+      const result = await window.electronAPI.skills.setStoragePath(folderPath, true);
+      if (result.success) {
+        setStoragePath(result.path);
+        await loadSkills(true);
+        setError('');
+        setSuccess(
+          t('skills.storagePathUpdated', {
+            migrated: result.migratedCount,
+            skipped: result.skippedCount,
+          })
+        );
+        setTimeout(() => setSuccess(''), 5000);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('skills.storagePathUpdateFailed'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleOpenStoragePath() {
+    setIsLoading(true);
+    try {
+      const result = await window.electronAPI.skills.openStoragePath();
+      if (!result.success) {
+        setError(result.error || t('skills.storagePathOpenFailed'));
+        return;
+      }
+      setStoragePath(result.path);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('skills.storagePathOpenFailed'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleRefreshSkills() {
+    setIsLoading(true);
+    try {
+      await loadSkills(true);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('skills.failedToLoad'));
     } finally {
       setIsLoading(false);
     }
@@ -2577,6 +2685,39 @@ function SkillsTab() {
           {success}
         </div>
       )}
+
+      <div className="p-4 rounded-xl bg-surface border border-border space-y-3">
+        <div className="text-sm font-medium text-text-primary">{t('skills.storagePathTitle')}</div>
+        <div className="text-xs text-text-muted break-all">
+          {storagePath || t('skills.storagePathUnavailable')}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <button
+            onClick={handleSelectStoragePath}
+            disabled={isLoading}
+            className="w-full py-2.5 px-3 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent disabled:opacity-50"
+          >
+            <FolderOpen className="w-4 h-4" />
+            {t('skills.selectStoragePath')}
+          </button>
+          <button
+            onClick={handleOpenStoragePath}
+            disabled={isLoading}
+            className="w-full py-2.5 px-3 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent disabled:opacity-50"
+          >
+            <Globe className="w-4 h-4" />
+            {t('skills.openStoragePath')}
+          </button>
+          <button
+            onClick={handleRefreshSkills}
+            disabled={isLoading}
+            className="w-full py-2.5 px-3 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent disabled:opacity-50"
+          >
+            <RefreshCw className="w-4 h-4" />
+            {t('skills.refreshSkills')}
+          </button>
+        </div>
+      </div>
 
       {/* Built-in Skills */}
       <div className="space-y-2">
@@ -2868,6 +3009,360 @@ function SkillCard({ skill, onToggleEnabled, onDelete, isLoading }: {
       </div>
     </div>
   );
+}
+
+function ScheduleTab() {
+  const workingDir = useAppStore((state) => state.workingDir);
+  const [tasks, setTasks] = useState<ScheduleTask[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [title, setTitle] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [cwd, setCwd] = useState('');
+  const [runAt, setRunAt] = useState('');
+  const [enabled, setEnabled] = useState(true);
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [repeatEvery, setRepeatEvery] = useState(1);
+  const [repeatUnit, setRepeatUnit] = useState<ScheduleRepeatUnit>('day');
+
+  useEffect(() => {
+    const defaultRunAt = Date.now() + 5 * 60 * 1000;
+    setRunAt(toLocalDateTimeInput(defaultRunAt));
+  }, []);
+
+  useEffect(() => {
+    if (!cwd) {
+      setCwd(workingDir || '');
+    }
+  }, [workingDir, cwd]);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    void loadTasks();
+  }, []);
+
+  async function loadTasks() {
+    if (!isElectron) return;
+    setIsLoading(true);
+    setError('');
+    try {
+      const rows = await window.electronAPI.schedule.list();
+      setTasks(rows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载定时任务失败');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function submitTask() {
+    if (!isElectron) return;
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      setError('请输入要执行的 Prompt');
+      return;
+    }
+    const runAtValue = new Date(runAt).getTime();
+    if (!Number.isFinite(runAtValue)) {
+      setError('请输入有效的执行时间');
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const normalizedTitle = title.trim() || '定时任务';
+      if (editingId) {
+        const payload: ScheduleUpdateInput = {
+          title: normalizedTitle,
+          prompt: trimmedPrompt,
+          cwd: cwd.trim() || workingDir || '',
+          runAt: runAtValue,
+          nextRunAt: runAtValue,
+          enabled,
+          repeatEvery: repeatEnabled ? repeatEvery : null,
+          repeatUnit: repeatEnabled ? repeatUnit : null,
+        };
+        await window.electronAPI.schedule.update(editingId, payload);
+        setSuccess('定时任务已更新');
+      } else {
+        const payload: ScheduleCreateInput = {
+          title: normalizedTitle,
+          prompt: trimmedPrompt,
+          cwd: cwd.trim() || workingDir || '',
+          runAt: runAtValue,
+          nextRunAt: runAtValue,
+          enabled,
+          repeatEvery: repeatEnabled ? repeatEvery : null,
+          repeatUnit: repeatEnabled ? repeatUnit : null,
+        };
+        await window.electronAPI.schedule.create(payload);
+        setSuccess('定时任务已创建');
+      }
+      clearForm();
+      await loadTasks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存定时任务失败');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function toggleTask(task: ScheduleTask) {
+    if (!isElectron) return;
+    setIsLoading(true);
+    setError('');
+    try {
+      await window.electronAPI.schedule.toggle(task.id, !task.enabled);
+      await loadTasks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '切换状态失败');
+      setIsLoading(false);
+    }
+  }
+
+  async function runNow(task: ScheduleTask) {
+    if (!isElectron) return;
+    setIsLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      await window.electronAPI.schedule.runNow(task.id);
+      setSuccess('已触发立即执行');
+      await loadTasks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '立即执行失败');
+      setIsLoading(false);
+    }
+  }
+
+  async function deleteTask(task: ScheduleTask) {
+    if (!isElectron) return;
+    if (!window.confirm(`确认删除任务「${task.title}」？`)) return;
+    setIsLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      await window.electronAPI.schedule.delete(task.id);
+      if (editingId === task.id) {
+        clearForm();
+      }
+      setSuccess('定时任务已删除');
+      await loadTasks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除失败');
+      setIsLoading(false);
+    }
+  }
+
+  function editTask(task: ScheduleTask) {
+    setEditingId(task.id);
+    setTitle(task.title);
+    setPrompt(task.prompt);
+    setCwd(task.cwd);
+    setRunAt(toLocalDateTimeInput(task.nextRunAt ?? task.runAt));
+    setEnabled(task.enabled);
+    setRepeatEnabled(Boolean(task.repeatEvery && task.repeatUnit));
+    setRepeatEvery(task.repeatEvery ?? 1);
+    setRepeatUnit(task.repeatUnit ?? 'day');
+    setError('');
+    setSuccess('');
+  }
+
+  function clearForm() {
+    const defaultRunAt = Date.now() + 5 * 60 * 1000;
+    setEditingId(null);
+    setTitle('');
+    setPrompt('');
+    setCwd(workingDir || '');
+    setRunAt(toLocalDateTimeInput(defaultRunAt));
+    setEnabled(true);
+    setRepeatEnabled(false);
+    setRepeatEvery(1);
+    setRepeatUnit('day');
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-error/10 text-error text-sm">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-success/10 text-success text-sm">
+          <CheckCircle className="w-4 h-4 flex-shrink-0" />
+          {success}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border bg-surface p-4 space-y-3">
+        <h4 className="text-sm font-medium text-text-primary">
+          {editingId ? '编辑定时任务' : '新建定时任务'}
+        </h4>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="任务标题（可选）"
+          className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+        />
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="到点后自动执行的 Prompt"
+          rows={3}
+          className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+        />
+        <input
+          value={cwd}
+          onChange={(e) => setCwd(e.target.value)}
+          placeholder="执行目录（默认当前工作目录）"
+          className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="datetime-local"
+            value={runAt}
+            onChange={(e) => setRunAt(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+          />
+          <label className="flex items-center gap-2 px-3 py-2 rounded-lg bg-background border border-border text-sm text-text-secondary">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+            />
+            启用
+          </label>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-text-secondary">
+          <input
+            type="checkbox"
+            checked={repeatEnabled}
+            onChange={(e) => setRepeatEnabled(e.target.checked)}
+          />
+          重复执行
+        </label>
+        {repeatEnabled && (
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="number"
+              min={1}
+              value={repeatEvery}
+              onChange={(e) => setRepeatEvery(Math.max(1, Number(e.target.value) || 1))}
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+            />
+            <select
+              value={repeatUnit}
+              onChange={(e) => setRepeatUnit(e.target.value as ScheduleRepeatUnit)}
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+            >
+              <option value="minute">分钟</option>
+              <option value="hour">小时</option>
+              <option value="day">天</option>
+            </select>
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={submitTask}
+            disabled={isLoading}
+            className="px-3 py-2 rounded-lg bg-accent text-white text-sm disabled:opacity-50"
+          >
+            {editingId ? '保存修改' : '创建任务'}
+          </button>
+          {editingId && (
+            <button
+              onClick={clearForm}
+              disabled={isLoading}
+              className="px-3 py-2 rounded-lg bg-surface-hover text-text-secondary text-sm disabled:opacity-50"
+            >
+              取消编辑
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {tasks.length === 0 ? (
+          <div className="text-sm text-text-muted text-center py-6 border border-dashed border-border rounded-xl">
+            暂无定时任务
+          </div>
+        ) : (
+          tasks.map((task) => (
+            <div key={task.id} className="rounded-xl border border-border bg-surface p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm text-text-primary truncate">{task.title}</div>
+                  <div className="text-xs text-text-muted truncate">{task.prompt}</div>
+                </div>
+                <span className={`text-xs px-2 py-1 rounded ${task.enabled ? 'bg-success/10 text-success' : 'bg-surface-hover text-text-muted'}`}>
+                  {task.enabled ? '已启用' : '已停用'}
+                </span>
+              </div>
+              <div className="text-xs text-text-muted">
+                下次执行：{task.nextRunAt ? formatTime(task.nextRunAt) : '无'}
+              </div>
+              <div className="text-xs text-text-muted">
+                目录：{task.cwd}
+              </div>
+              {task.lastError && (
+                <div className="text-xs text-error break-all">最近错误：{task.lastError}</div>
+              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => toggleTask(task)}
+                  disabled={isLoading}
+                  className="px-2 py-1 rounded bg-surface-hover text-xs text-text-secondary disabled:opacity-50"
+                >
+                  {task.enabled ? '停用' : '启用'}
+                </button>
+                <button
+                  onClick={() => runNow(task)}
+                  disabled={isLoading}
+                  className="px-2 py-1 rounded bg-surface-hover text-xs text-text-secondary disabled:opacity-50"
+                >
+                  立即执行
+                </button>
+                <button
+                  onClick={() => editTask(task)}
+                  disabled={isLoading}
+                  className="px-2 py-1 rounded bg-surface-hover text-xs text-text-secondary disabled:opacity-50"
+                >
+                  编辑
+                </button>
+                <button
+                  onClick={() => deleteTask(task)}
+                  disabled={isLoading}
+                  className="px-2 py-1 rounded bg-error/10 text-xs text-error disabled:opacity-50"
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function toLocalDateTimeInput(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hour = pad(date.getHours());
+  const minute = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+function formatTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString();
 }
 
 // ==================== Language Tab ====================

@@ -9,4 +9,10 @@ describe('ContextPanel artifacts scroll', () => {
     const source = fs.readFileSync(contextPanelPath, 'utf8');
     expect(source).toContain('className="px-4 pb-4 max-h-80 overflow-y-auto"');
   });
+
+  it('does not fallback to opening external file URLs when reveal fails', () => {
+    const source = fs.readFileSync(contextPanelPath, 'utf8');
+    expect(source).not.toContain('openExternal');
+    expect(source).toContain("message: t('context.revealFailed')");
+  });
 });

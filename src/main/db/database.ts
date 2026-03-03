@@ -36,6 +36,14 @@ export interface DatabaseInstance {
     getBySessionId: (sessionId: string) => TraceStepRow[];
     deleteBySessionId: (sessionId: string) => void;
   };
+
+  scheduledTasks: {
+    create: (task: ScheduledTaskRow) => void;
+    update: (id: string, updates: Partial<ScheduledTaskRow>) => void;
+    get: (id: string) => ScheduledTaskRow | undefined;
+    getAll: () => ScheduledTaskRow[];
+    delete: (id: string) => void;
+  };
   
   // For compatibility with old interface
   prepare: (sql: string) => Database.Statement;
@@ -80,6 +88,23 @@ export interface TraceStepRow {
   is_error: number | null;
   timestamp: number;
   duration: number | null;
+}
+
+export interface ScheduledTaskRow {
+  id: string;
+  title: string;
+  prompt: string;
+  cwd: string;
+  run_at: number;
+  next_run_at: number | null;
+  repeat_every: number | null;
+  repeat_unit: string | null;
+  enabled: number;
+  last_run_at: number | null;
+  last_run_session_id: string | null;
+  last_error: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 let db: DatabaseInstance | null = null;
@@ -203,6 +228,30 @@ function initializeSchema(database: Database.Database): void {
       created_at INTEGER NOT NULL
     )
   `);
+
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      run_at INTEGER NOT NULL,
+      next_run_at INTEGER,
+      repeat_every INTEGER,
+      repeat_unit TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run_at INTEGER,
+      last_run_session_id TEXT,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run
+    ON scheduled_tasks(enabled, next_run_at)
+  `);
   
   log('[Database] Schema initialized');
 }
@@ -292,6 +341,25 @@ export function initDatabase(): DatabaseInstance {
 
   const deleteTraceStepsBySessionStmt = rawDb.prepare(`
     DELETE FROM trace_steps WHERE session_id = ?
+  `);
+
+  const insertScheduledTask = rawDb.prepare(`
+    INSERT OR REPLACE INTO scheduled_tasks (
+      id, title, prompt, cwd, run_at, next_run_at, repeat_every, repeat_unit, enabled, last_run_at, last_run_session_id, last_error, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const getScheduledTaskStmt = rawDb.prepare(`
+    SELECT * FROM scheduled_tasks WHERE id = ?
+  `);
+
+  const getAllScheduledTasksStmt = rawDb.prepare(`
+    SELECT * FROM scheduled_tasks ORDER BY created_at ASC
+  `);
+
+  const deleteScheduledTaskStmt = rawDb.prepare(`
+    DELETE FROM scheduled_tasks WHERE id = ?
   `);
   
   db = {
@@ -418,6 +486,60 @@ export function initDatabase(): DatabaseInstance {
 
       deleteBySessionId: (sessionId: string) => {
         deleteTraceStepsBySessionStmt.run(sessionId);
+      },
+    },
+
+    scheduledTasks: {
+      create: (task: ScheduledTaskRow) => {
+        insertScheduledTask.run(
+          task.id,
+          task.title,
+          task.prompt,
+          task.cwd,
+          task.run_at,
+          task.next_run_at,
+          task.repeat_every,
+          task.repeat_unit,
+          task.enabled,
+          task.last_run_at,
+          task.last_run_session_id,
+          task.last_error,
+          task.created_at,
+          task.updated_at
+        );
+      },
+
+      update: (id: string, updates: Partial<ScheduledTaskRow>) => {
+        const setClauses: string[] = [];
+        const values: unknown[] = [];
+
+        for (const [key, value] of Object.entries(updates)) {
+          if (value !== undefined) {
+            setClauses.push(`${key} = ?`);
+            values.push(value);
+          }
+        }
+
+        if (setClauses.length === 0) return;
+
+        setClauses.push('updated_at = ?');
+        values.push(Date.now());
+        values.push(id);
+
+        const sql = `UPDATE scheduled_tasks SET ${setClauses.join(', ')} WHERE id = ?`;
+        rawDb.prepare(sql).run(...values);
+      },
+
+      get: (id: string): ScheduledTaskRow | undefined => {
+        return getScheduledTaskStmt.get(id) as ScheduledTaskRow | undefined;
+      },
+
+      getAll: (): ScheduledTaskRow[] => {
+        return getAllScheduledTasksStmt.all() as ScheduledTaskRow[];
+      },
+
+      delete: (id: string) => {
+        deleteScheduledTaskStmt.run(id);
       },
     },
     

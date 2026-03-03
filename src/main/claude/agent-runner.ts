@@ -17,6 +17,7 @@ import { buildMcpToolsPrompt } from '../utils/cowork-instructions';
 import { buildClaudeEnv, getClaudeEnvOverrides } from './claude-env';
 import { buildThinkingOptions } from './thinking-options';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
+import { configStore } from '../config/config-store';
 // import { PathGuard } from '../sandbox/path-guard';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
@@ -244,6 +245,32 @@ ${sections.join('\n\n')}
     return path.join(app.getPath('userData'), 'claude');
   }
 
+  private getRuntimeSkillsDir(): string {
+    return path.join(this.getAppClaudeDir(), 'skills');
+  }
+
+  private getConfiguredGlobalSkillsDir(): string {
+    const configuredPath = (configStore.get('globalSkillsPath') || '').trim();
+    if (!configuredPath) {
+      return this.getRuntimeSkillsDir();
+    }
+
+    const resolvedPath = path.resolve(configuredPath);
+    try {
+      if (!fs.existsSync(resolvedPath)) {
+        fs.mkdirSync(resolvedPath, { recursive: true });
+      }
+      if (fs.statSync(resolvedPath).isDirectory()) {
+        return resolvedPath;
+      }
+      logWarn('[ClaudeAgentRunner] Configured skills path is not a directory, fallback to runtime path:', resolvedPath);
+    } catch (error) {
+      logWarn('[ClaudeAgentRunner] Configured skills path is unavailable, fallback to runtime path:', resolvedPath, error);
+    }
+
+    return this.getRuntimeSkillsDir();
+  }
+
   private getUserClaudeSkillsDir(): string {
     return path.join(app.getPath('home'), '.claude', 'skills');
   }
@@ -279,6 +306,35 @@ ${sections.join('\n\n')}
           this.copyDirectorySync(sourcePath, targetPath);
         } catch (copyErr) {
           logWarn('[ClaudeAgentRunner] Failed to import user skill:', entry.name, copyErr);
+        }
+      }
+    }
+  }
+
+  private syncConfiguredSkillsToRuntimeDir(runtimeSkillsDir: string): void {
+    const configuredSkillsDir = this.getConfiguredGlobalSkillsDir();
+    if (configuredSkillsDir === runtimeSkillsDir) {
+      return;
+    }
+    if (!fs.existsSync(configuredSkillsDir) || !fs.statSync(configuredSkillsDir).isDirectory()) {
+      return;
+    }
+
+    const entries = fs.readdirSync(configuredSkillsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const sourcePath = path.join(configuredSkillsDir, entry.name);
+      const targetPath = path.join(runtimeSkillsDir, entry.name);
+      try {
+        if (fs.existsSync(targetPath)) {
+          fs.rmSync(targetPath, { recursive: true, force: true });
+        }
+        fs.symlinkSync(sourcePath, targetPath, 'dir');
+      } catch (err) {
+        try {
+          this.copyDirectorySync(sourcePath, targetPath);
+        } catch (copyErr) {
+          logWarn('[ClaudeAgentRunner] Failed to sync configured skill:', entry.name, copyErr);
         }
       }
     }
@@ -341,8 +397,8 @@ ${sections.join('\n\n')}
       }
     }
     
-    // 2. Check global skills (app-specific directory)
-    const globalSkillsPath = path.join(this.getAppClaudeDir(), 'skills');
+    // 2. Check global skills (configured skills directory)
+    const globalSkillsPath = this.getConfiguredGlobalSkillsDir();
     if (fs.existsSync(globalSkillsPath)) {
       try {
         const dirs = fs.readdirSync(globalSkillsPath, { withFileTypes: true });
@@ -795,12 +851,12 @@ Then follow the workflow described in that file.
               });
             }
 
-            const appClaudeDir = this.getAppClaudeDir();
-            const appSkillsDir = path.join(appClaudeDir, 'skills');
+            const appSkillsDir = this.getRuntimeSkillsDir();
             if (!fs.existsSync(appSkillsDir)) {
               fs.mkdirSync(appSkillsDir, { recursive: true });
             }
             this.syncUserSkillsToAppDir(appSkillsDir);
+            this.syncConfiguredSkillsToRuntimeDir(appSkillsDir);
 
             if (fs.existsSync(appSkillsDir)) {
               const wslSourcePath = pathConverter.toWSL(appSkillsDir);
@@ -930,12 +986,12 @@ Then follow the workflow described in that file.
               });
             }
 
-            const appClaudeDir = this.getAppClaudeDir();
-            const appSkillsDir = path.join(appClaudeDir, 'skills');
+            const appSkillsDir = this.getRuntimeSkillsDir();
             if (!fs.existsSync(appSkillsDir)) {
               fs.mkdirSync(appSkillsDir, { recursive: true });
             }
             this.syncUserSkillsToAppDir(appSkillsDir);
+            this.syncConfiguredSkillsToRuntimeDir(appSkillsDir);
 
             if (fs.existsSync(appSkillsDir)) {
               const rsyncCmd = `rsync -avL "${appSkillsDir}/" "${sandboxSkillsPath}/"`;
@@ -1036,6 +1092,7 @@ Then follow the workflow described in that file.
       // SANDBOX: Path validation function with whitelist for skills directories
       const builtinSkillsPathForValidation = this.getBuiltinSkillsPath();
       const appClaudeDirForValidation = this.getAppClaudeDir();
+      const configuredSkillsPathForValidation = this.getConfiguredGlobalSkillsDir();
       
       // @ts-ignore - Reserved for future use
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -1050,6 +1107,7 @@ Then follow the workflow described in that file.
         const whitelistedPaths = [
           builtinSkillsPathForValidation,  // Built-in skills (shipped with app)
           appClaudeDirForValidation,        // App Claude config dir (includes user skills)
+          configuredSkillsPathForValidation,
         ].filter(Boolean) as string[];
         
         for (const whitelistedPath of whitelistedPaths) {
@@ -1145,7 +1203,7 @@ Then follow the workflow described in that file.
       }
 
       // Ensure app Claude skills directory exists
-      const appSkillsDir = path.join(userClaudeDir, 'skills');
+      const appSkillsDir = this.getRuntimeSkillsDir();
       if (!fs.existsSync(appSkillsDir)) {
         fs.mkdirSync(appSkillsDir, { recursive: true });
       }
@@ -1174,6 +1232,7 @@ Then follow the workflow described in that file.
       }
 
       this.syncUserSkillsToAppDir(appSkillsDir);
+      this.syncConfiguredSkillsToRuntimeDir(appSkillsDir);
 
       // Build available skills section dynamically
       const availableSkillsPrompt = this.getAvailableSkillsPrompt(workingDir);

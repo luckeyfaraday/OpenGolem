@@ -15,6 +15,9 @@ import type {
   PluginInstallResultV2,
   PluginToggleResult,
   PluginComponentKind,
+  ScheduleTask,
+  ScheduleCreateInput,
+  ScheduleUpdateInput,
 } from '../renderer/types';
 
 // Track registered callbacks to prevent duplicate listeners
@@ -161,6 +164,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('skills.setEnabled', skillId, enabled),
     validate: (skillPath: string): Promise<{ valid: boolean; errors: string[] }> =>
       ipcRenderer.invoke('skills.validate', skillPath),
+    getStoragePath: (): Promise<string> =>
+      ipcRenderer.invoke('skills.getStoragePath'),
+    setStoragePath: (
+      targetPath: string,
+      migrate = true
+    ): Promise<{ success: boolean; path: string; migratedCount: number; skippedCount: number; error?: string }> =>
+      ipcRenderer.invoke('skills.setStoragePath', targetPath, migrate),
+    openStoragePath: (): Promise<{ success: boolean; path: string; error?: string }> =>
+      ipcRenderer.invoke('skills.openStoragePath'),
     listPlugins: (installableOnly = false): Promise<PluginCatalogItem[]> =>
       ipcRenderer.invoke('skills.listPlugins', installableOnly),
     installPlugin: (pluginName: string): Promise<PluginInstallResult> =>
@@ -315,6 +327,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     restart: (): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('remote.restart'),
   },
+
+  schedule: {
+    list: (): Promise<ScheduleTask[]> => ipcRenderer.invoke('schedule.list'),
+    create: (payload: ScheduleCreateInput): Promise<ScheduleTask> =>
+      ipcRenderer.invoke('schedule.create', payload),
+    update: (id: string, updates: ScheduleUpdateInput): Promise<ScheduleTask | null> =>
+      ipcRenderer.invoke('schedule.update', id, updates),
+    delete: (id: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('schedule.delete', id),
+    toggle: (id: string, enabled: boolean): Promise<ScheduleTask | null> =>
+      ipcRenderer.invoke('schedule.toggle', id, enabled),
+    runNow: (id: string): Promise<ScheduleTask | null> =>
+      ipcRenderer.invoke('schedule.runNow', id),
+  },
 });
 
 // Type declaration for the renderer process
@@ -389,6 +415,12 @@ declare global {
         delete: (skillId: string) => Promise<{ success: boolean }>;
         setEnabled: (skillId: string, enabled: boolean) => Promise<{ success: boolean }>;
         validate: (skillPath: string) => Promise<{ valid: boolean; errors: string[] }>;
+        getStoragePath: () => Promise<string>;
+        setStoragePath: (
+          targetPath: string,
+          migrate?: boolean
+        ) => Promise<{ success: boolean; path: string; migratedCount: number; skippedCount: number; error?: string }>;
+        openStoragePath: () => Promise<{ success: boolean; path: string; error?: string }>;
         listPlugins: (installableOnly?: boolean) => Promise<PluginCatalogItem[]>;
         installPlugin: (pluginName: string) => Promise<PluginInstallResult>;
       };
@@ -504,6 +536,14 @@ declare global {
         }>;
         getWebhookUrl: () => Promise<string | null>;
         restart: () => Promise<{ success: boolean; error?: string }>;
+      };
+      schedule: {
+        list: () => Promise<ScheduleTask[]>;
+        create: (payload: ScheduleCreateInput) => Promise<ScheduleTask>;
+        update: (id: string, updates: ScheduleUpdateInput) => Promise<ScheduleTask | null>;
+        delete: (id: string) => Promise<{ success: boolean }>;
+        toggle: (id: string, enabled: boolean) => Promise<ScheduleTask | null>;
+        runNow: (id: string) => Promise<ScheduleTask | null>;
       };
     };
   }
