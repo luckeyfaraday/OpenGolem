@@ -558,6 +558,11 @@ app.whenReady().then(async () => {
       }
       const title = task.title?.trim() || '定时任务';
       const started = await sessionManager.startSession(title, task.prompt, task.cwd);
+      // 定时任务创建的新会话需要主动同步到前端会话列表
+      sendToRenderer({
+        type: 'session.update',
+        payload: { sessionId: started.id, updates: started },
+      });
       return { sessionId: started.id };
     },
     now: () => Date.now(),

@@ -3018,6 +3018,7 @@ function ScheduleTab() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTaskSnapshot, setEditingTaskSnapshot] = useState<ScheduleTask | null>(null);
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [cwd, setCwd] = useState('');
@@ -3043,17 +3044,32 @@ function ScheduleTab() {
     void loadTasks();
   }, []);
 
-  async function loadTasks() {
+  useEffect(() => {
     if (!isElectron) return;
-    setIsLoading(true);
-    setError('');
+    const interval = setInterval(() => {
+      void loadTasks({ silent: true });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  async function loadTasks(options: { silent?: boolean } = {}) {
+    if (!isElectron) return;
+    const silent = options.silent === true;
+    if (!silent) {
+      setIsLoading(true);
+      setError('');
+    }
     try {
       const rows = await window.electronAPI.schedule.list();
       setTasks(rows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载定时任务失败');
+      if (!silent) {
+        setError(err instanceof Error ? err.message : '加载定时任务失败');
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   }
 
@@ -3075,19 +3091,40 @@ function ScheduleTab() {
     try {
       const normalizedTitle = title.trim() || '定时任务';
       if (editingId) {
+        const originalRunAtInput = editingTaskSnapshot
+          ? toLocalDateTimeInput(editingTaskSnapshot.nextRunAt ?? editingTaskSnapshot.runAt)
+          : null;
+        const shouldResetScheduleTime = (
+          !editingTaskSnapshot ||
+          runAt !== originalRunAtInput ||
+          (enabled && editingTaskSnapshot.nextRunAt === null)
+        );
+        if (shouldResetScheduleTime && runAtValue <= Date.now()) {
+          setError('执行时间必须晚于当前时间；如需立刻执行请使用“立即执行”');
+          return;
+        }
         const payload: ScheduleUpdateInput = {
           title: normalizedTitle,
           prompt: trimmedPrompt,
           cwd: cwd.trim() || workingDir || '',
-          runAt: runAtValue,
-          nextRunAt: runAtValue,
           enabled,
           repeatEvery: repeatEnabled ? repeatEvery : null,
           repeatUnit: repeatEnabled ? repeatUnit : null,
         };
-        await window.electronAPI.schedule.update(editingId, payload);
+        if (shouldResetScheduleTime) {
+          payload.runAt = runAtValue;
+          payload.nextRunAt = runAtValue;
+        }
+        const updated = await window.electronAPI.schedule.update(editingId, payload);
+        if (!updated) {
+          throw new Error('任务不存在或已被删除');
+        }
         setSuccess('定时任务已更新');
       } else {
+        if (runAtValue <= Date.now()) {
+          setError('执行时间必须晚于当前时间；如需立刻执行请使用“立即执行”');
+          return;
+        }
         const payload: ScheduleCreateInput = {
           title: normalizedTitle,
           prompt: trimmedPrompt,
@@ -3115,7 +3152,10 @@ function ScheduleTab() {
     setIsLoading(true);
     setError('');
     try {
-      await window.electronAPI.schedule.toggle(task.id, !task.enabled);
+      const updated = await window.electronAPI.schedule.toggle(task.id, !task.enabled);
+      if (!updated) {
+        throw new Error('任务不存在或已被删除');
+      }
       await loadTasks();
     } catch (err) {
       setError(err instanceof Error ? err.message : '切换状态失败');
@@ -3129,7 +3169,10 @@ function ScheduleTab() {
     setError('');
     setSuccess('');
     try {
-      await window.electronAPI.schedule.runNow(task.id);
+      const updated = await window.electronAPI.schedule.runNow(task.id);
+      if (!updated) {
+        throw new Error('任务不存在或已被删除');
+      }
       setSuccess('已触发立即执行');
       await loadTasks();
     } catch (err) {
@@ -3159,6 +3202,7 @@ function ScheduleTab() {
 
   function editTask(task: ScheduleTask) {
     setEditingId(task.id);
+    setEditingTaskSnapshot(task);
     setTitle(task.title);
     setPrompt(task.prompt);
     setCwd(task.cwd);
@@ -3174,6 +3218,7 @@ function ScheduleTab() {
   function clearForm() {
     const defaultRunAt = Date.now() + 5 * 60 * 1000;
     setEditingId(null);
+    setEditingTaskSnapshot(null);
     setTitle('');
     setPrompt('');
     setCwd(workingDir || '');
@@ -3304,7 +3349,7 @@ function ScheduleTab() {
                 </span>
               </div>
               <div className="text-xs text-text-muted">
-                下次执行：{task.nextRunAt ? formatTime(task.nextRunAt) : '无'}
+                下次执行：{task.nextRunAt === null ? '无' : formatTime(task.nextRunAt)}
               </div>
               <div className="text-xs text-text-muted">
                 目录：{task.cwd}

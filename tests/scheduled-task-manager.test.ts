@@ -170,4 +170,168 @@ describe('ScheduledTaskManager', () => {
     expect(executeTask).toHaveBeenCalledTimes(1);
     expect(after?.nextRunAt).toBe(now + 5 * 60 * 1000);
   });
+
+  it('runNow consumes one-time schedule and prevents duplicate auto trigger', async () => {
+    const now = Date.now();
+    const store = createStore([
+      createTask({
+        id: 'run-now-once',
+        runAt: now + 1000,
+        nextRunAt: now + 1000,
+      }),
+    ]);
+    const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-now-once' });
+
+    const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
+    manager.start();
+
+    await manager.runNow('run-now-once');
+
+    const afterRunNow = store.get('run-now-once');
+    expect(executeTask).toHaveBeenCalledTimes(1);
+    expect(afterRunNow?.enabled).toBe(false);
+    expect(afterRunNow?.nextRunAt).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(executeTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('runNow on overdue repeating task reschedules and avoids immediate duplicate run', async () => {
+    const now = Date.now();
+    const store = createStore([
+      createTask({
+        id: 'run-now-repeat-overdue',
+        runAt: now - 60 * 1000,
+        nextRunAt: now - 60 * 1000,
+        repeatEvery: 1,
+        repeatUnit: 'minute',
+      }),
+    ]);
+    const executeTask = vi
+      .fn()
+      .mockResolvedValueOnce({ sessionId: 'session-repeat-now-1' })
+      .mockResolvedValueOnce({ sessionId: 'session-repeat-now-2' });
+
+    const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
+    manager.start();
+
+    await manager.runNow('run-now-repeat-overdue');
+
+    const afterRunNow = store.get('run-now-repeat-overdue');
+    expect(executeTask).toHaveBeenCalledTimes(1);
+    expect(afterRunNow?.enabled).toBe(true);
+    expect(afterRunNow?.nextRunAt).toBe(now + 60 * 1000);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(executeTask).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    expect(executeTask).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats epoch nextRunAt=0 as a valid scheduled time', async () => {
+    const store = createStore([
+      createTask({
+        id: 'epoch-task',
+        runAt: 0,
+        nextRunAt: 0,
+        enabled: true,
+      }),
+    ]);
+    const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-epoch' });
+
+    const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
+    manager.start();
+
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(executeTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores stale trigger when task has been moved to a future nextRunAt', async () => {
+    const now = Date.now();
+    const store = createStore([
+      createTask({
+        id: 'stale-trigger',
+        runAt: now - 60 * 1000,
+        nextRunAt: now - 60 * 1000,
+        repeatEvery: 1,
+        repeatUnit: 'minute',
+      }),
+    ]);
+    const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-stale' });
+
+    const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
+    manager.start();
+
+    await manager.runNow('stale-trigger');
+    expect(executeTask).toHaveBeenCalledTimes(1);
+
+    (manager as any).handleTrigger('stale-trigger');
+    expect(executeTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('runNow throws on execution error and clears lastRunSessionId', async () => {
+    const now = Date.now();
+    const store = createStore([
+      createTask({
+        id: 'run-now-failure',
+        runAt: now + 1000,
+        nextRunAt: now + 1000,
+        lastRunSessionId: 'previous-session',
+      }),
+    ]);
+    const executeTask = vi.fn().mockRejectedValue(new Error('runner failed'));
+
+    const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
+    manager.start();
+
+    await expect(manager.runNow('run-now-failure')).rejects.toThrow('runner failed');
+
+    const after = store.get('run-now-failure');
+    expect(after?.lastRunSessionId).toBeNull();
+    expect(after?.lastError).toBe('runner failed');
+  });
+
+  it('normalizes repeatEvery below 1 to one-time schedule', () => {
+    const now = Date.now();
+    const store = createStore([]);
+    const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-normalize' });
+    const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
+
+    const created = manager.create({
+      title: 'normalize',
+      prompt: 'run',
+      cwd: '/tmp/project',
+      runAt: now + 60 * 1000,
+      repeatEvery: 0.4,
+      repeatUnit: 'hour',
+      enabled: true,
+    });
+
+    expect(created.repeatEvery).toBeNull();
+    expect(created.repeatUnit).toBeNull();
+  });
+
+  it('does not execute long-delay task before nextRunAt when delay exceeds max timer range', async () => {
+    const now = Date.now();
+    const longDelay = 2_147_483_647 + 60_000;
+    const store = createStore([
+      createTask({
+        id: 'long-delay',
+        runAt: now + longDelay,
+        nextRunAt: now + longDelay,
+        enabled: true,
+      }),
+    ]);
+    const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-long-delay' });
+    const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
+    manager.start();
+
+    await vi.advanceTimersByTimeAsync(2_147_483_647);
+    expect(executeTask).toHaveBeenCalledTimes(0);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(executeTask).toHaveBeenCalledTimes(1);
+  });
 });

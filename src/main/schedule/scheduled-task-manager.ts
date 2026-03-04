@@ -54,6 +54,14 @@ export interface ScheduledTaskRunResult {
   sessionId: string;
 }
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+interface ScheduledTaskExecutionRecord {
+  success: boolean;
+  sessionId?: string;
+  error?: string;
+}
+
 interface ScheduledTaskManagerOptions {
   store: ScheduledTaskStore;
   executeTask: (task: ScheduledTask) => Promise<ScheduledTaskRunResult>;
@@ -96,7 +104,9 @@ export class ScheduledTaskManager {
 
   create(input: ScheduledTaskCreateInput): ScheduledTask {
     const normalizedRepeatEvery = normalizeRepeatEvery(input.repeatEvery);
-    const normalizedRepeatUnit = normalizeRepeatUnit(input.repeatUnit);
+    const normalizedRepeatUnit = normalizedRepeatEvery === null
+      ? null
+      : normalizeRepeatUnit(input.repeatUnit);
     const created = this.store.create({
       ...input,
       nextRunAt: input.nextRunAt ?? input.runAt,
@@ -112,9 +122,12 @@ export class ScheduledTaskManager {
     const nextRepeatEvery = updates.repeatEvery === undefined
       ? undefined
       : normalizeRepeatEvery(updates.repeatEvery);
-    const nextRepeatUnit = updates.repeatUnit === undefined
+    let nextRepeatUnit = updates.repeatUnit === undefined
       ? undefined
       : normalizeRepeatUnit(updates.repeatUnit);
+    if (nextRepeatEvery !== undefined && nextRepeatEvery === null) {
+      nextRepeatUnit = null;
+    }
     const updated = this.store.update(id, {
       ...updates,
       repeatEvery: nextRepeatEvery,
@@ -145,7 +158,11 @@ export class ScheduledTaskManager {
   async runNow(id: string): Promise<ScheduledTask | null> {
     const task = this.store.get(id);
     if (!task) return null;
-    await this.executeAndRecord(task);
+    const taskToExecute = this.prepareExecution(task);
+    const execution = await this.executeAndRecord(taskToExecute);
+    if (!execution.success) {
+      throw new Error(execution.error ?? '定时任务执行失败');
+    }
     return this.store.get(id);
   }
 
@@ -153,11 +170,12 @@ export class ScheduledTaskManager {
     this.clearTimer(task.id);
     if (!this.running) return;
     if (!task.enabled) return;
-    if (!task.nextRunAt) return;
+    if (task.nextRunAt === null) return;
     const delay = Math.max(0, task.nextRunAt - this.now());
+    const effectiveDelay = Math.min(delay, MAX_TIMER_DELAY_MS);
     const timer = setTimeout(() => {
       this.handleTrigger(task.id);
-    }, delay);
+    }, effectiveDelay);
     this.timers.set(task.id, timer);
   }
 
@@ -165,6 +183,21 @@ export class ScheduledTaskManager {
     this.timers.delete(taskId);
     const task = this.store.get(taskId);
     if (!task || !task.enabled) return;
+    if (task.nextRunAt === null) return;
+    if (task.nextRunAt > this.now()) {
+      this.scheduleTask(task);
+      return;
+    }
+    const taskToExecute = this.prepareExecution(task);
+    void this.executeAndRecord(taskToExecute);
+  }
+
+  private prepareExecution(task: ScheduledTask): ScheduledTask {
+    this.clearTimer(task.id);
+
+    if (!task.enabled) {
+      return task;
+    }
 
     if (isRepeatingTask(task)) {
       const nextRunAt = computeNextRunAt(task, this.now());
@@ -175,20 +208,18 @@ export class ScheduledTaskManager {
         });
         if (updated) {
           this.scheduleTask(updated);
-          void this.executeAndRecord(updated);
-          return;
+          return updated;
         }
       }
     }
 
-    const disabled = this.store.update(task.id, {
+    return this.store.update(task.id, {
       enabled: false,
       nextRunAt: null,
     }) ?? task;
-    void this.executeAndRecord(disabled);
   }
 
-  private async executeAndRecord(task: ScheduledTask): Promise<void> {
+  private async executeAndRecord(task: ScheduledTask): Promise<ScheduledTaskExecutionRecord> {
     try {
       const result = await this.executeTask(task);
       this.store.update(task.id, {
@@ -196,12 +227,15 @@ export class ScheduledTaskManager {
         lastRunSessionId: result.sessionId,
         lastError: null,
       });
+      return { success: true, sessionId: result.sessionId };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.store.update(task.id, {
         lastRunAt: this.now(),
+        lastRunSessionId: null,
         lastError: message,
       });
+      return { success: false, error: message };
     }
   }
 
@@ -217,8 +251,9 @@ export class ScheduledTaskManager {
 function normalizeRepeatEvery(value: number | null | undefined): number | null {
   if (typeof value !== 'number') return null;
   if (!Number.isFinite(value)) return null;
-  if (value <= 0) return null;
-  return Math.floor(value);
+  const normalized = Math.floor(value);
+  if (normalized <= 0) return null;
+  return normalized;
 }
 
 function normalizeRepeatUnit(value: ScheduleRepeatUnit | null | undefined): ScheduleRepeatUnit | null {
@@ -235,11 +270,11 @@ function isRepeatingTask(task: ScheduledTask): boolean {
 function computeNextRunAt(task: ScheduledTask, now: number): number | null {
   const intervalMs = getIntervalMs(task.repeatEvery, task.repeatUnit);
   if (intervalMs === null) return null;
-  let next = task.nextRunAt ?? task.runAt;
-  while (next <= now) {
-    next += intervalMs;
-  }
-  return next;
+  const nextBase = task.nextRunAt ?? task.runAt;
+  if (!Number.isFinite(nextBase)) return null;
+  if (nextBase > now) return nextBase;
+  const skippedIntervals = Math.floor((now - nextBase) / intervalMs) + 1;
+  return nextBase + skippedIntervals * intervalMs;
 }
 
 function getIntervalMs(
