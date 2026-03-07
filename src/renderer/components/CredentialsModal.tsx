@@ -188,7 +188,7 @@ export function CredentialsModal({ isOpen, onClose }: CredentialsModalProps) {
                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                           cred.type === 'email' ? 'bg-blue-500/10 text-blue-500' :
                           cred.type === 'website' ? 'bg-green-500/10 text-green-500' :
-                          cred.type === 'api' ? 'bg-purple-500/10 text-purple-500' :
+                          cred.type === 'api' ? 'bg-mcp/10 text-mcp' :
                           'bg-gray-500/10 text-gray-500'
                         }`}>
                           {getTypeIcon(cred.type)}

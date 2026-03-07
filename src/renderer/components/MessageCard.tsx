@@ -470,23 +470,23 @@ function ToolUseBlock({ block }: { block: ToolUseContent }) {
 
   return (
     <div className={`rounded-xl border overflow-hidden bg-surface ${
-      isMCPTool ? 'border-purple-500/30 bg-gradient-to-br from-purple-500/5 to-transparent' : 'border-border'
+      isMCPTool ? 'border-mcp/30 bg-gradient-to-br from-mcp/5 to-transparent' : 'border-border'
     }`}>
       <button
         onClick={() => setExpanded(!expanded)}
         className={`w-full px-4 py-3 flex items-center gap-3 transition-colors ${
           isMCPTool 
-            ? 'bg-purple-500/10 hover:bg-purple-500/20' 
+            ? 'bg-mcp/10 hover:bg-mcp/20' 
             : 'bg-surface-muted hover:bg-surface-active'
         }`}
       >
         <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${
           isMCPTool 
-            ? 'bg-purple-500/20' 
+            ? 'bg-mcp/20' 
             : 'bg-accent-muted'
         }`}>
           {isMCPTool ? (
-            <Plug className="w-3.5 h-3.5 text-purple-500" />
+            <Plug className="w-3.5 h-3.5 text-mcp" />
           ) : (
           <Terminal className="w-3.5 h-3.5 text-accent" />
           )}
@@ -494,7 +494,7 @@ function ToolUseBlock({ block }: { block: ToolUseContent }) {
         <div className="flex-1 text-left">
         <span className="font-medium text-sm text-text-primary">{getToolTitle(block.name)}</span>
           {isMCPTool && mcpServerName && (
-            <span className="ml-2 px-1.5 py-0.5 text-xs rounded bg-purple-500/20 text-purple-500">
+            <span className="ml-2 px-1.5 py-0.5 text-xs rounded bg-mcp/20 text-mcp">
               {mcpServerName}
             </span>
           )}

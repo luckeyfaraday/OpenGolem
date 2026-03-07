@@ -577,16 +577,16 @@ export function ChatView() {
               aria-hidden="true"
               className="absolute left-0 top-0 -z-10 opacity-0 pointer-events-none"
             >
-              <div className="flex items-center gap-2 px-2 py-1 rounded-lg border border-purple-500/20">
+              <div className="flex items-center gap-2 px-2 py-1 rounded-lg border border-mcp/20">
                 <Plug className="w-3.5 h-3.5" />
                 <span className="text-xs font-medium whitespace-nowrap">
                   {t('chat.connectorCount', { count: activeConnectors.length })}
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 justify-self-end">
-              <Plug className="w-3.5 h-3.5 text-purple-500" />
-              <span className="text-xs text-purple-500 font-medium">
+            <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-mcp/10 border border-mcp/20 justify-self-end">
+              <Plug className="w-3.5 h-3.5 text-mcp" />
+              <span className="text-xs text-mcp font-medium">
                 {showConnectorLabel ? (
                   t('chat.connectorCount', { count: activeConnectors.length })
                 ) : (
@@ -686,10 +686,9 @@ export function ChatView() {
             )}
 
             <div
-              className={`flex items-end gap-2 p-3 rounded-3xl bg-surface transition-colors ${
+              className={`flex items-end gap-2 p-3 rounded-2xl bg-surface border border-border-subtle transition-colors ${
                 isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
               }`}
-              style={{ border: '1px solid rgba(255, 255, 255, 0.1)' }}
             >
               <button
                 type="button"

@@ -387,14 +387,14 @@ function ConnectorItem({
         onClick={onToggle}
         className={`w-full px-3 py-2 flex items-center gap-2 transition-colors ${
           server.connected 
-            ? 'bg-purple-500/10 hover:bg-purple-500/20' 
+            ? 'bg-mcp/10 hover:bg-mcp/20' 
             : 'bg-surface-muted hover:bg-surface-hover'
         }`}
       >
         <div className={`w-6 h-6 rounded flex items-center justify-center ${
-          server.connected ? 'bg-purple-500/20' : 'bg-surface-muted'
+          server.connected ? 'bg-mcp/20' : 'bg-surface-muted'
         }`}>
-          <Plug className={`w-3.5 h-3.5 ${server.connected ? 'text-purple-500' : 'text-text-muted'}`} />
+          <Plug className={`w-3.5 h-3.5 ${server.connected ? 'text-mcp' : 'text-text-muted'}`} />
         </div>
         <div className="flex-1 text-left min-w-0">
           <div className="flex items-center gap-2">
@@ -435,9 +435,9 @@ function ConnectorItem({
                 return (
                   <div
                     key={index}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded bg-purple-500/5 hover:bg-purple-500/10 transition-colors"
+                    className="flex items-center gap-2 px-2 py-1.5 rounded bg-mcp/5 hover:bg-mcp/10 transition-colors"
                   >
-                    <Wrench className="w-3.5 h-3.5 text-purple-500" />
+                    <Wrench className="w-3.5 h-3.5 text-mcp" />
                     <span className="text-xs text-text-primary flex-1">{readableName}</span>
                     <span className="text-xs text-text-muted">{count}x</span>
                   </div>
@@ -644,7 +644,7 @@ function getToolIcon(toolName: string) {
     case 'list_directory':
       return <FolderOpen className="w-4 h-4 text-yellow-500" />;
     case 'execute_command':
-      return <Terminal className="w-4 h-4 text-purple-500" />;
+      return <Terminal className="w-4 h-4 text-mcp" />;
     case 'glob':
       return <Search className="w-4 h-4 text-orange-500" />;
     case 'grep':

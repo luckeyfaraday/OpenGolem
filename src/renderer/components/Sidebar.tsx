@@ -238,7 +238,7 @@ export function Sidebar() {
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                     loadingSession === session.id ? 'bg-accent animate-pulse' :
                     (activeTurnsBySession[session.id] || (pendingTurnsBySession[session.id]?.length ?? 0) > 0) ? 'bg-accent' :
                     session.status === 'completed' ? 'bg-success' :
@@ -293,7 +293,7 @@ export function Sidebar() {
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-text-primary">{t('sidebar.user')}</span>
                 <span
-                  className={`w-2 h-2 rounded-full flex-shrink-0 ${isConfigured ? 'bg-success' : 'bg-amber-500'}`}
+                  className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isConfigured ? 'bg-success' : 'bg-amber-500'}`}
                   title={isConfigured ? t('sidebar.apiConfigured') : t('sidebar.apiNotConfigured')}
                 />
               </div>

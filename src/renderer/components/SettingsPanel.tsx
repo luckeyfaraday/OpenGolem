@@ -269,8 +269,6 @@ function APISettingsTab() {
     testResult,
     useLiveTest,
     enableThinking,
-    isImportingAuth,
-    isOpenAIMode,
     requiresApiKey,
     configSets,
     activeConfigSetId,
@@ -298,8 +296,6 @@ function APISettingsTab() {
     deleteConfigSet,
     handleSave,
     handleTest,
-    handleImportLocalAuth,
-    resolveLocalAuthProvider,
   } = useApiConfigState();
 
   if (isLoadingConfig) {
@@ -373,24 +369,6 @@ function APISettingsTab() {
         />
         {currentPreset?.keyHint && (
           <p className="text-xs text-text-muted">{currentPreset.keyHint}</p>
-        )}
-        {isOpenAIMode && (
-          <p className="text-xs text-text-muted">OpenAI 默认走 Codex CLI（自动执行、无审批弹窗）；优先使用手填 API Key，本地 Codex 登录作为回退链路。</p>
-        )}
-        {resolveLocalAuthProvider() && (
-          <button
-            type="button"
-            onClick={handleImportLocalAuth}
-            disabled={isImportingAuth !== null}
-            className="w-full mt-1 px-3 py-2 rounded-lg border border-border bg-surface-hover text-text-secondary text-xs hover:bg-surface-active disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-          >
-            {isImportingAuth ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
-            {isImportingAuth
-              ? 'Importing local auth...'
-              : resolveLocalAuthProvider() === 'codex'
-                ? 'Import from local Codex login'
-                : 'Import from local Claude Code login'}
-          </button>
         )}
       </div>
 
@@ -1332,7 +1310,7 @@ function CredentialsTab() {
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                       cred.type === 'email' ? 'bg-blue-500/10 text-blue-500' :
                       cred.type === 'website' ? 'bg-green-500/10 text-green-500' :
-                      cred.type === 'api' ? 'bg-purple-500/10 text-purple-500' :
+                      cred.type === 'api' ? 'bg-mcp/10 text-mcp' :
                       'bg-gray-500/10 text-gray-500'
                     }`}>
                       {getTypeIcon(cred.type)}
@@ -1713,7 +1691,7 @@ function ConnectorsTab() {
   return (
     <div className="space-y-4">
       {/* Info */}
-      <div className="px-4 py-3 rounded-xl bg-purple-500/10 text-purple-600 text-sm">
+      <div className="px-4 py-3 rounded-xl bg-mcp/10 text-mcp text-sm">
         <p className="font-medium mb-1">🔌 {t('settings.connectors')}</p>
         <p className="text-xs opacity-80">
           {t('settings.connectorsDesc')}
@@ -2721,7 +2699,7 @@ function SkillsTab() {
   return (
     <div className="space-y-4">
       {/* Info Banner */}
-      <div className="px-4 py-3 rounded-xl bg-purple-500/10 text-purple-600 text-sm">
+      <div className="px-4 py-3 rounded-xl bg-mcp/10 text-mcp text-sm">
         <p className="font-medium mb-1">{t('skills.title')}</p>
         <p className="text-xs opacity-80">
           {t('skills.description')}
@@ -3027,7 +3005,7 @@ function SkillCard({ skill, onToggleEnabled, onDelete, isLoading }: {
               isBuiltin
                 ? 'bg-blue-500/10 text-blue-500'
                 : skill.type === 'mcp'
-                  ? 'bg-purple-500/10 text-purple-500'
+                  ? 'bg-mcp/10 text-mcp'
                   : 'bg-green-500/10 text-green-500'
             }`}>
               {skill.type.toUpperCase()}

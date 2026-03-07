@@ -8,9 +8,8 @@ import { SessionManager } from './session/session-manager';
 import { SkillsManager } from './skills/skills-manager';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
-import { configStore, PROVIDER_PRESETS, type AppConfig, type CreateConfigSetPayload } from './config/config-store';
+import { configStore, getPiAiModelPresets, type AppConfig, type CreateConfigSetPayload } from './config/config-store';
 import { runConfigApiTest } from './config/config-test-routing';
-import { getLocalAuthStatuses, importLocalAuthToken, type LocalAuthProvider } from './auth/local-auth';
 import { mcpConfigStore } from './mcp/mcp-config-store';
 import { credentialsStore, type UserCredential } from './credentials/credentials-store';
 import { getSandboxAdapter, shutdownSandbox } from './sandbox/sandbox-adapter';
@@ -30,8 +29,6 @@ import {
   type ScheduledTaskUpdateInput,
 } from './schedule/scheduled-task-manager';
 import { createScheduledTaskStore } from './schedule/scheduled-task-store';
-import { getClaudeUnifiedModeState, shouldUseUnifiedClaudeProxy, shouldUseUnifiedClaudeSdk } from './session/claude-unified-mode';
-import { claudeProxyManager } from './proxy/claude-proxy-manager';
 import {
   buildScheduledTaskFallbackTitle,
   buildScheduledTaskTitle,
@@ -537,11 +534,7 @@ app.whenReady().then(async () => {
   log('=== Open Cowork Starting ===');
   log('Config file:', configStore.getPath());
   log('Is configured:', configStore.isConfigured());
-  const unifiedModeState = getClaudeUnifiedModeState();
-  log('[ClaudeUnified] Mode:', unifiedModeState.enabled ? 'enabled' : 'disabled', {
-    reason: unifiedModeState.reason,
-    legacy_force_flag: unifiedModeState.legacyForceFlag,
-  });
+  log('[Runtime] Using pi-coding-agent SDK for all providers');
   log('Developer logs:', enableDevLogs ? 'Enabled' : 'Disabled');
   log('Environment Variables:');
   log('  ANTHROPIC_AUTH_TOKEN:', process.env.ANTHROPIC_AUTH_TOKEN ? '✓ Set' : '✗ Not set');
@@ -581,18 +574,7 @@ app.whenReady().then(async () => {
 
   // Initialize session manager
   sessionManager = new SessionManager(db, sendToRenderer, pluginRuntimeService);
-  if (shouldUseUnifiedClaudeProxy(configStore.getAll())) {
-    sendToRenderer({ type: 'proxy.warmup', payload: { status: 'warming' } });
-    void claudeProxyManager.warmupForConfig(configStore.getAll())
-      .then(() => {
-        log('[ClaudeProxy] Warmup complete during app startup');
-        sendToRenderer({ type: 'proxy.warmup', payload: { status: 'ready' } });
-      })
-      .catch((error) => {
-        logWarn('[ClaudeProxy] Startup warmup failed; it will retry on demand', error);
-        sendToRenderer({ type: 'proxy.warmup', payload: { status: 'failed' } });
-      });
-  }
+  // pi-ai handles model routing natively — no proxy warmup needed
 
   const scheduledTaskStore = createScheduledTaskStore(db);
   scheduledTaskManager = new ScheduledTaskManager({
@@ -708,12 +690,7 @@ async function cleanupSandboxResources(): Promise<void> {
     logError('[App] Error shutting down sandbox:', error);
   }
 
-  try {
-    await claudeProxyManager.stop();
-    log('[App] Claude proxy shutdown complete');
-  } catch (error) {
-    logError('[App] Error shutting down Claude proxy:', error);
-  }
+  // pi-ai doesn't need proxy shutdown
 }
 
 // Handle app quit - window-all-closed (primary for Windows/Linux)
@@ -945,7 +922,7 @@ ipcMain.handle('config.get', () => {
 });
 
 ipcMain.handle('config.getPresets', () => {
-  return PROVIDER_PRESETS;
+  return getPiAiModelPresets();
 });
 
 const syncConfigAfterMutation = async () => {
@@ -959,18 +936,6 @@ const syncConfigAfterMutation = async () => {
   if (sessionManager) {
     sessionManager.reloadConfig();
     log('[Config] Session manager config reloaded');
-  }
-
-  if (shouldUseUnifiedClaudeProxy(configStore.getAll())) {
-    sendToRenderer({ type: 'proxy.warmup', payload: { status: 'warming' } });
-    void claudeProxyManager.warmupForConfig(configStore.getAll())
-      .then(() => {
-        sendToRenderer({ type: 'proxy.warmup', payload: { status: 'ready' } });
-      })
-      .catch((error) => {
-        logWarn('[ClaudeProxy] Warmup after config mutation failed', error);
-        sendToRenderer({ type: 'proxy.warmup', payload: { status: 'failed' } });
-      });
   }
 
   // Notify renderer of config update
@@ -1031,7 +996,7 @@ ipcMain.handle('config.isConfigured', () => {
 
 ipcMain.handle('config.test', async (_event, payload: ApiTestInput): Promise<ApiTestResult> => {
   try {
-    return await runConfigApiTest(payload, configStore.getAll(), shouldUseUnifiedClaudeSdk(payload));
+    return await runConfigApiTest(payload, configStore.getAll());
   } catch (error) {
     logError('[Config] API test failed:', error);
     return {
@@ -1043,14 +1008,11 @@ ipcMain.handle('config.test', async (_event, payload: ApiTestInput): Promise<Api
 });
 
 ipcMain.handle('auth.getStatus', () => {
-  return getLocalAuthStatuses();
+  return [];
 });
 
-ipcMain.handle('auth.importToken', (_event, provider: LocalAuthProvider) => {
-  if (provider !== 'codex') {
-    throw new Error(`Unsupported auth provider: ${provider}`);
-  }
-  return importLocalAuthToken(provider);
+ipcMain.handle('auth.importToken', () => {
+  return null;
 });
 
 // MCP Server IPC handlers

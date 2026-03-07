@@ -8,14 +8,19 @@
   /* Define CSS variables for theming */
   :root {
     /* Dark theme (default) */
-    --color-background: #0f0f0f;
-    --color-background-secondary: #1a1a1a;
-    --color-surface: #1e1e1e;
-    --color-surface-hover: #2a2a2a;
-    --color-surface-active: #303030;
-    --color-surface-muted: #171717;
-    --color-border: #2a2a2a;
-    --color-border-muted: #242424;
+    --color-background: #0a0a0a;
+    --color-background-secondary: #141414;
+    --color-surface: #191919;
+    --color-surface-hover: #222222;
+    --color-surface-active: #2c2c2c;
+    --color-surface-muted: #111111;
+    --color-border: #262626;
+    --color-border-muted: #1e1e1e;
+    --color-border-subtle: rgba(255, 255, 255, 0.07);
+    --color-mcp: #a855f7;
+    --shadow-soft: 0 1px 4px rgba(0, 0, 0, 0.3);
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
     --color-accent: #f97316;
     --color-accent-hover: #ea580c;
     --color-accent-muted: rgba(249, 115, 22, 0.1);
@@ -34,6 +39,11 @@
     --color-surface-muted: #f7f6f3;
     --color-border: #e5e3de;
     --color-border-muted: #ebe9e4;
+    --color-border-subtle: rgba(0, 0, 0, 0.06);
+    --color-mcp: #9333ea;
+    --shadow-soft: 0 1px 4px rgba(0, 0, 0, 0.04);
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.1);
     --color-accent: #f97316;
     --color-accent-hover: #ea580c;
     --color-accent-muted: #fff7ed;
@@ -105,20 +115,19 @@
   .input {
     @apply w-full px-4 py-3 rounded-xl bg-surface border border-border;
     @apply text-text-primary placeholder:text-text-muted;
-    @apply focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent focus:ring-opacity-10;
+    @apply focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent focus:ring-opacity-25;
     @apply transition-all duration-150;
   }
 
   /* Card styles */
   .card {
-    @apply bg-surface rounded-3xl shadow-card;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    @apply bg-surface rounded-2xl shadow-card border border-border-subtle;
   }
 
   .card-hover {
     @apply hover:shadow-elevated cursor-pointer transition-all duration-150;
     &:hover {
-      border-color: rgba(255, 255, 255, 0.12);
+      @apply border-border;
     }
   }
 
@@ -131,7 +140,7 @@
 
   .tag-active {
     @apply bg-accent-muted text-accent;
-    border-color: rgba(249, 115, 22, 0.3);
+    border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
   }
 
   /* Badge styles */
@@ -201,27 +210,25 @@
 
   /* Message bubbles */
   .message-user {
-    @apply bg-surface rounded-2xl;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    @apply bg-surface rounded-2xl border border-border-subtle;
     width: fit-content;
     margin-left: auto;
   }
 
   .message-assistant {
-    @apply bg-surface rounded-3xl;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    @apply bg-surface rounded-2xl border border-border-subtle;
   }
 
   /* Prose styling for assistant messages - elegant serif font */
   .prose-chat {
     font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif;
     font-size: 1.0625rem;
-    line-height: 1.75;
+    line-height: 1.625;
     letter-spacing: -0.01em;
   }
 
   .prose-chat p {
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
   }
 
   .prose-chat p:last-child {
@@ -275,8 +282,8 @@
   .prose-chat h1, .prose-chat h2, .prose-chat h3, .prose-chat h4 {
     font-family: 'Inter', system-ui, sans-serif;
     font-weight: 600;
-    margin-top: 1.5rem;
-    margin-bottom: 0.75rem;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
   }
 
   .prose-chat h1 { font-size: 1.5rem; }
@@ -315,8 +322,8 @@
   .prose-chat blockquote {
     margin: 0.75rem 0;
     padding-left: 1rem;
-    border-left: 2px solid rgba(124, 58, 237, 0.4);
-    color: theme('colors.text.muted');
+    border-left: 2px solid var(--color-border);
+    color: theme('colors.text.secondary');
   }
 
   .prose-chat .footnotes {
@@ -339,8 +346,7 @@
 
   /* Code block */
   .code-block {
-    @apply bg-surface-muted rounded-2xl p-4 font-mono text-sm overflow-x-auto;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    @apply bg-surface-muted rounded-xl p-4 font-mono text-sm overflow-x-auto border border-border-subtle;
   }
 
   /* Tool name wrapping - force break on any character */
