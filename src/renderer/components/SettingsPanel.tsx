@@ -4047,9 +4047,14 @@ function GeneralTab() {
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const currentLang = i18n.language.startsWith('zh') ? 'zh' : 'en';
-  const [appVer] = useState(() => {
-    try { return window.electronAPI?.getVersion?.() || ''; } catch { return ''; }
-  });
+  const [appVer, setAppVer] = useState('');
+  useEffect(() => {
+    try {
+      const v = window.electronAPI?.getVersion?.();
+      if (v instanceof Promise) v.then(setAppVer);
+      else if (v) setAppVer(v);
+    } catch { /* ignore */ }
+  }, []);
 
   const languages = [
     { code: 'en', nativeName: 'English' },

@@ -105,7 +105,7 @@ export function SandboxSetupDialog({ progress, onComplete }: Props) {
           <div className="flex items-start gap-3 mb-4">
             <div className={`text-xl ${
               isComplete ? 'text-success' :
-              isError ? 'text-red-500' :
+              isError ? 'text-error' :
               'text-accent'
             }`}>
               {config.icon}
@@ -113,7 +113,7 @@ export function SandboxSetupDialog({ progress, onComplete }: Props) {
             <div className="flex-1">
               <p className={`font-medium ${
                 isComplete ? 'text-success' :
-                isError ? 'text-red-500' :
+                isError ? 'text-error' :
                 'text-accent'
               }`}>
                 {progress.message}
@@ -148,8 +148,8 @@ export function SandboxSetupDialog({ progress, onComplete }: Props) {
 
           {/* Error Display */}
           {isError && progress.error && (
-            <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
-              <p className="text-sm text-red-500">
+            <div className="mt-4 p-3 bg-error/10 border border-error/30 rounded-xl">
+              <p className="text-sm text-error">
                 {progress.error}
               </p>
               <p className="text-xs text-text-muted mt-2">

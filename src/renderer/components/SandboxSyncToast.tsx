@@ -71,7 +71,7 @@ export function SandboxSyncToast({ status }: Props) {
           <div className="flex-1 min-w-0">
             <p className={`font-medium text-sm ${
               isComplete ? 'text-success' : 
-              isError ? 'text-red-500' : 
+              isError ? 'text-error' :
               'text-accent'
             }`}>
               {status.message}
