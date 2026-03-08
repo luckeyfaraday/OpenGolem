@@ -6,6 +6,7 @@ const CHATGPT_ACCOUNT_ID_RE = /^[-_a-zA-Z0-9]{6,}$/;
 const OFFICIAL_OPENAI_HOSTS = new Set(['api.openai.com', 'chatgpt.com']);
 
 export const OPENAI_PLATFORM_BASE_URL = 'https://api.openai.com/v1';
+export const LOCAL_OPENAI_PLACEHOLDER_KEY = 'sk-openai-local-proxy';
 
 type OpenAIConfigLike = Pick<AppConfig, 'provider' | 'customProtocol' | 'apiKey' | 'baseUrl'>;
 
@@ -140,9 +141,14 @@ export function resolveOpenAICredentials(
   config: OpenAIConfigLike
 ): ResolvedOpenAICredentials | null {
   const trimmedApiKey = config.apiKey?.trim();
-  if (trimmedApiKey) {
+  const effectiveApiKey = trimmedApiKey || (
+    shouldAllowEmptyOpenAIApiKey(config)
+      ? LOCAL_OPENAI_PLACEHOLDER_KEY
+      : ''
+  );
+  if (effectiveApiKey) {
     return {
-      apiKey: trimmedApiKey,
+      apiKey: effectiveApiKey,
       baseUrl: normalizeOpenAICompatibleBaseUrl(config.baseUrl),
     };
   }

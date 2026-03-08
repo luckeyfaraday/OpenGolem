@@ -144,7 +144,7 @@ export async function testApiConnection(input: ApiTestInput): Promise<ApiTestRes
     live: useLiveRequest,
   });
 
-  if (useOpenAI && !apiKey) {
+  if (useOpenAI && !resolvedOpenAI?.apiKey) {
     logWarn('[Config][ApiTest] Missing credentials for test');
     return {
       ok: false,
@@ -172,7 +172,7 @@ export async function testApiConnection(input: ApiTestInput): Promise<ApiTestRes
     if (useOpenAI) {
       await testOpenAICredentials(
         {
-          apiKey,
+          apiKey: resolvedOpenAI.apiKey,
           baseUrl: resolvedOpenAI?.baseUrl || resolvedBaseUrl,
         },
         input.model,

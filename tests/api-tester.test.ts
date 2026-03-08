@@ -163,6 +163,27 @@ describe('testApiConnection', () => {
     );
   });
 
+  it('allows empty api key for local custom openai gateway by injecting placeholder', async () => {
+    const result = await testApiConnection({
+      provider: 'custom',
+      customProtocol: 'openai',
+      apiKey: '',
+      baseUrl: 'http://127.0.0.1:8082/v1',
+      model: 'gpt-4.1-mini',
+      useLiveRequest: false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(mocks.openaiCtor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: 'sk-openai-local-proxy',
+        baseURL: 'http://127.0.0.1:8082/v1',
+        timeout: 30000,
+      }),
+    );
+    expect(mocks.openaiModelsList).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps models.list check for direct anthropic when not live request', async () => {
     const result = await testApiConnection({
       provider: 'anthropic',

@@ -9,6 +9,7 @@ import {
   resolveOpenAICredentials,
   sanitizeOpenAIAccountId,
   shouldAllowEmptyAnthropicApiKey,
+  shouldAllowEmptyOpenAIApiKey,
   shouldAllowEmptyGeminiApiKey,
   shouldUseAnthropicAuthToken,
 } from '../src/main/config/auth-utils';
@@ -73,6 +74,20 @@ describe('auth-utils', () => {
     });
 
     expect(resolved).toBeNull();
+  });
+
+  it('injects a placeholder key for custom openai loopback gateway when api key is empty', () => {
+    const resolved = resolveOpenAICredentials({
+      provider: 'custom',
+      customProtocol: 'openai',
+      apiKey: '',
+      baseUrl: 'http://127.0.0.1:8082/v1',
+    });
+
+    expect(resolved).toEqual({
+      apiKey: 'sk-openai-local-proxy',
+      baseUrl: 'http://127.0.0.1:8082/v1',
+    });
   });
 
   it('sanitizes invalid OpenAI account id values', () => {
@@ -169,6 +184,32 @@ describe('auth-utils', () => {
       shouldAllowEmptyGeminiApiKey({
         provider: 'gemini',
         customProtocol: 'gemini',
+        baseUrl: 'http://127.0.0.1:8082',
+      })
+    ).toBe(false);
+  });
+
+  it('allows empty openai api key only for custom openai loopback gateway', () => {
+    expect(
+      shouldAllowEmptyOpenAIApiKey({
+        provider: 'custom',
+        customProtocol: 'openai',
+        baseUrl: 'http://127.0.0.1:8082',
+      })
+    ).toBe(true);
+
+    expect(
+      shouldAllowEmptyOpenAIApiKey({
+        provider: 'custom',
+        customProtocol: 'openai',
+        baseUrl: 'https://proxy.example.com',
+      })
+    ).toBe(false);
+
+    expect(
+      shouldAllowEmptyOpenAIApiKey({
+        provider: 'openai',
+        customProtocol: 'openai',
         baseUrl: 'http://127.0.0.1:8082',
       })
     ).toBe(false);
