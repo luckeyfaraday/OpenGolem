@@ -16,4 +16,18 @@ describe('Main process startup order', () => {
     expect(createWindowIndex).toBeGreaterThan(-1);
     expect(sessionManagerIndex).toBeLessThan(createWindowIndex);
   });
+
+  it('does not force-disable sandbox mode on every startup', () => {
+    const source = fs.readFileSync(indexPath, 'utf8');
+
+    expect(source).not.toContain("configStore.set('sandboxEnabled', false);");
+  });
+
+  it('surfaces startup failures through a top-level catch handler', () => {
+    const source = fs.readFileSync(indexPath, 'utf8');
+
+    expect(source).toContain('app.whenReady().then(async () => {');
+    expect(source).toContain('}).catch((error) => {');
+    expect(source).toContain('dialog.showErrorBox(');
+  });
 });

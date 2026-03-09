@@ -508,10 +508,6 @@ function sendToRenderer(event: ServerEvent) {
 
 // Initialize app
 app.whenReady().then(async () => {
-  // TODO: Re-enable sandbox when debugging is complete
-  // Force disable sandbox on startup (temporary fix)
-  configStore.set('sandboxEnabled', false);
-  
   // Apply dev logs setting from config
   const enableDevLogs = configStore.get('enableDevLogs');
   setDevLogsEnabled(enableDevLogs);
@@ -626,6 +622,11 @@ app.whenReady().then(async () => {
       createWindow();
     }
   });
+}).catch((error) => {
+  logError('[App] Startup failed:', error);
+  const message = error instanceof Error ? error.message : 'Unknown startup error';
+  dialog.showErrorBox('Open Cowork 启动失败', `${message}\n\n请查看日志获取更多信息。`);
+  app.quit();
 });
 
 // Flag to prevent double cleanup

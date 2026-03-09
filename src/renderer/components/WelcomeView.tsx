@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import type { ContentBlock } from '../types';
+import { getInitialSessionTitle } from '../../shared/session-title';
 import {
   FileText,
   BarChart3,
@@ -316,7 +317,7 @@ export function WelcomeView() {
     // Use the global working directory (always available after app startup)
     setIsSubmitting(true);
     try {
-      const sessionTitle = currentPrompt.slice(0, 50) + (currentPrompt.length > 50 ? '...' : '');
+      const sessionTitle = getInitialSessionTitle(currentPrompt, attachedFiles[0]?.name);
       const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined);
       if (session) {
         setPrompt('');
