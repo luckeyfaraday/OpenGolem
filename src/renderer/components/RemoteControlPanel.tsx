@@ -96,7 +96,7 @@ interface TunnelStatus {
 type ConfigStep = 'feishu' | 'connection' | 'advanced';
 type LocalizedBanner = { key?: string; text?: string | null };
 
-export function RemoteControlPanel() {
+export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
   const { i18n, t } = useTranslation();
 
   // State
@@ -126,10 +126,13 @@ export function RemoteControlPanel() {
 
   // Load data
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
     loadData();
     const interval = setInterval(refreshStatus, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isActive]);
 
   async function loadData() {
     if (!isElectron) return;

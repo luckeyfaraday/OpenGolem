@@ -91,13 +91,21 @@ export function ContextPanel() {
     }
     return { input, output, total: input + output };
   }, [messages]);
+  const artifactStepKey = useMemo(
+    () => displayArtifactSteps.map((step) => step.id).join('|'),
+    [displayArtifactSteps]
+  );
 
   useEffect(() => {
+    if (contextPanelCollapsed) {
+      return;
+    }
     if (
       typeof window === 'undefined'
       || !window.electronAPI?.artifacts?.listRecentFiles
       || !currentWorkingDir
       || !activeSession?.createdAt
+      || !displayArtifactSteps.length
     ) {
       setRecentWorkspaceFiles([]);
       return;
@@ -126,7 +134,14 @@ export function ContextPanel() {
     return () => {
       cancelled = true;
     };
-  }, [activeSession?.createdAt, activeSessionId, currentWorkingDir, steps.length]);
+  }, [
+    activeSession?.createdAt,
+    activeSessionId,
+    artifactStepKey,
+    contextPanelCollapsed,
+    currentWorkingDir,
+    displayArtifactSteps.length,
+  ]);
 
   const displayArtifacts = useMemo(() => {
     const seenPaths = new Set<string>();
@@ -169,8 +184,10 @@ export function ContextPanel() {
     return items;
   }, [currentWorkingDir, displayArtifactSteps, recentWorkspaceFiles]);
 
-  // Load MCP servers on mount
   useEffect(() => {
+    if (contextPanelCollapsed) {
+      return;
+    }
     const loadMCPServers = async () => {
       try {
         const servers = await getMCPServers();
@@ -182,7 +199,7 @@ export function ContextPanel() {
     loadMCPServers();
     const interval = setInterval(loadMCPServers, 30000);
     return () => clearInterval(interval);
-  }, [getMCPServers]);
+  }, [contextPanelCollapsed, getMCPServers]);
 
   if (contextPanelCollapsed) {
     return (

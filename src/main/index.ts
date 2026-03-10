@@ -932,25 +932,46 @@ ipcMain.handle('config.getPresets', () => {
   return getPiAiModelPresets();
 });
 
-const syncConfigAfterMutation = async () => {
+const buildAgentRuntimeSignature = (config: AppConfig): string => JSON.stringify({
+  provider: config.provider,
+  apiKey: config.apiKey,
+  baseUrl: config.baseUrl,
+  customProtocol: config.customProtocol,
+  model: config.model,
+  enableThinking: config.enableThinking,
+});
+
+const syncConfigAfterMutation = async (previousConfig: AppConfig) => {
   // Mark as configured if any config set has usable credentials
   configStore.set('isConfigured', configStore.hasAnyUsableCredentials());
 
   // Apply to environment
   configStore.applyToEnv();
 
-  // Reload config in session manager (safer than recreating it)
+  const updatedConfig = configStore.getAll();
+  const shouldReloadRunner =
+    buildAgentRuntimeSignature(previousConfig) !== buildAgentRuntimeSignature(updatedConfig);
+  const shouldReloadSandbox = previousConfig.sandboxEnabled !== updatedConfig.sandboxEnabled;
+
   if (sessionManager) {
-    sessionManager.reloadConfig();
-    // MCP fingerprint check will skip reinit if servers haven't changed
-    await sessionManager.reloadMCP().catch((err) => logError('[Config] MCP reload failed:', err));
-    await sessionManager.reloadSandbox().catch((err) => logError('[Config] Sandbox reload failed:', err));
-    log('[Config] Session manager config reloaded');
+    if (shouldReloadRunner) {
+      sessionManager.reloadConfig();
+    }
+    if (shouldReloadSandbox) {
+      await sessionManager
+        .reloadSandbox()
+        .catch((err) => logError('[Config] Sandbox reload failed:', err));
+    }
+    if (shouldReloadRunner || shouldReloadSandbox) {
+      log(
+        '[Config] Session manager config synced:',
+        JSON.stringify({ runnerReloaded: shouldReloadRunner, sandboxReloaded: shouldReloadSandbox })
+      );
+    }
   }
 
   // Notify renderer of config update
   const isConfigured = configStore.isConfigured();
-  const updatedConfig = configStore.getAll();
   sendToRenderer({
     type: 'config.status',
     payload: {
@@ -965,38 +986,43 @@ const syncConfigAfterMutation = async () => {
 ipcMain.handle('config.save', async (_event, newConfig: Partial<AppConfig>) => {
   log('[Config] Saving config:', { ...newConfig, apiKey: newConfig.apiKey ? '***' : '' });
 
+  const previousConfig = configStore.getAll();
   // Update config
   configStore.update(newConfig);
-  const updatedConfig = await syncConfigAfterMutation();
+  const updatedConfig = await syncConfigAfterMutation(previousConfig);
 
   return { success: true, config: updatedConfig };
 });
 
 ipcMain.handle('config.createSet', async (_event, payload: CreateConfigSetPayload) => {
   log('[Config] Creating config set:', payload);
+  const previousConfig = configStore.getAll();
   configStore.createSet(payload);
-  const updatedConfig = await syncConfigAfterMutation();
+  const updatedConfig = await syncConfigAfterMutation(previousConfig);
   return { success: true, config: updatedConfig };
 });
 
 ipcMain.handle('config.renameSet', async (_event, payload: { id: string; name: string }) => {
   log('[Config] Renaming config set:', payload);
+  const previousConfig = configStore.getAll();
   configStore.renameSet(payload);
-  const updatedConfig = await syncConfigAfterMutation();
+  const updatedConfig = await syncConfigAfterMutation(previousConfig);
   return { success: true, config: updatedConfig };
 });
 
 ipcMain.handle('config.deleteSet', async (_event, payload: { id: string }) => {
   log('[Config] Deleting config set:', payload);
+  const previousConfig = configStore.getAll();
   configStore.deleteSet(payload);
-  const updatedConfig = await syncConfigAfterMutation();
+  const updatedConfig = await syncConfigAfterMutation(previousConfig);
   return { success: true, config: updatedConfig };
 });
 
 ipcMain.handle('config.switchSet', async (_event, payload: { id: string }) => {
   log('[Config] Switching config set:', payload);
+  const previousConfig = configStore.getAll();
   configStore.switchSet(payload);
-  const updatedConfig = await syncConfigAfterMutation();
+  const updatedConfig = await syncConfigAfterMutation(previousConfig);
   return { success: true, config: updatedConfig };
 });
 

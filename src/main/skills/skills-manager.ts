@@ -63,6 +63,8 @@ export class SkillsManager {
   private storageWatcher: FSWatcher | null = null;
   private storagePollingTimer: NodeJS.Timeout | null = null;
   private lastStorageSignature = '';
+  private loadedGlobalSkillsSignature = '';
+  private globalSkillsLoaded = false;
   private storageCallbacks = new Set<(event: SkillsStorageChangeEvent) => void>();
 
   constructor(db: DatabaseInstance, options: SkillsManagerOptions = {}) {
@@ -185,6 +187,7 @@ export class SkillsManager {
   }
 
   private emitStorageEvent(event: SkillsStorageChangeEvent): void {
+    this.invalidateGlobalSkillsCache();
     for (const callback of this.storageCallbacks) {
       try {
         callback(event);
@@ -201,6 +204,11 @@ export class SkillsManager {
         this.loadedSkills.delete(key);
       }
     }
+  }
+
+  private invalidateGlobalSkillsCache(): void {
+    this.loadedGlobalSkillsSignature = '';
+    this.globalSkillsLoaded = false;
   }
 
   private computeStorageSignature(storagePath: string): string {
@@ -354,15 +362,22 @@ export class SkillsManager {
    */
   async loadGlobalSkills(): Promise<Skill[]> {
     const globalSkillsPath = this.getGlobalSkillsPath();
-    this.clearSkillsBySource('global');
 
     if (!fs.existsSync(globalSkillsPath)) {
       fs.mkdirSync(globalSkillsPath, { recursive: true });
     }
 
     await this.importUserSkills(globalSkillsPath);
+    const signature = this.computeStorageSignature(globalSkillsPath);
+    if (this.globalSkillsLoaded && signature === this.loadedGlobalSkillsSignature) {
+      return Array.from(this.loadedSkills.values()).filter((skill) => skill.id.startsWith('global-'));
+    }
 
-    return this.loadSkillsFromDirectory(globalSkillsPath, 'global');
+    this.clearSkillsBySource('global');
+    const skills = await this.loadSkillsFromDirectory(globalSkillsPath, 'global');
+    this.loadedGlobalSkillsSignature = signature;
+    this.globalSkillsLoaded = true;
+    return skills;
   }
 
   async setGlobalSkillsPath(newPath: string, migrate = true): Promise<SetGlobalSkillsPathResult> {
@@ -404,6 +419,7 @@ export class SkillsManager {
     if (this.watchStorageEnabled) {
       this.startStorageWatcher();
     }
+    this.invalidateGlobalSkillsCache();
     await this.loadGlobalSkills();
     this.emitStorageEvent({ path: targetPath, reason: 'path_changed' });
 
@@ -445,7 +461,6 @@ export class SkillsManager {
 
             skills.push(skill);
             this.loadedSkills.set(skill.id, skill);
-            log(`Loaded ${source} skill: ${skill.name}`);
           }
         }
         // Also support legacy .json config files
@@ -808,6 +823,7 @@ export class SkillsManager {
     await this.copySkillToGlobal(skillPath, metadata.name);
 
     // Reload from global directory and return canonical global skill entry.
+    this.invalidateGlobalSkillsCache();
     const globalSkills = await this.loadGlobalSkills();
     const installedSkill = globalSkills.find(
       (skill) => skill.name.toLowerCase() === normalizedSkillName
@@ -972,6 +988,7 @@ export class SkillsManager {
 
     // Remove from loaded skills
     this.loadedSkills.delete(skillId);
+    this.invalidateGlobalSkillsCache();
 
     // Delete from database
     const stmt = this.db.prepare('DELETE FROM skills WHERE id = ?');
