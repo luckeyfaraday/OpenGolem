@@ -32,7 +32,10 @@ function normalizeError(error: unknown): ApiTestResult {
   if (/5\d\d|server error|internal error/i.test(message)) {
     return { ok: false, errorType: 'server_error', details: message };
   }
-  if (/timed?\s*out|timeout|network|fetch failed|econnrefused|enotfound|eai_again/i.test(message)) {
+  if (/econnrefused/i.test(message)) {
+    return { ok: false, errorType: 'ollama_not_running', details: message };
+  }
+  if (/timed?\s*out|timeout|network|fetch failed|enotfound|eai_again/i.test(message)) {
     return { ok: false, errorType: 'network_error', details: message };
   }
   return { ok: false, errorType: 'unknown', details: message };

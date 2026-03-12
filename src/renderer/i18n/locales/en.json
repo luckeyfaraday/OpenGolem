@@ -141,6 +141,7 @@
     "liveTestCompatibilityHint": "Some compatible providers may reject this probe; disable it and try again if needed.",
     "enableThinking": "Enable Thinking Mode",
     "enableThinkingHint": "Show Claude's thinking process step by step. This provides more transparency but may increase token usage.",
+    "enableThinkingOllamaHint": "Most Ollama models do not support thinking mode. Enable only if your model explicitly supports it.",
     "testSuccess": "Connection successful ({{ms}}ms)",
     "testSuccessNeedSave": "Connection test passed. Save settings before starting a session.",
     "testError": {
@@ -151,6 +152,7 @@
       "rate_limited": "Rate limited or quota exceeded",
       "server_error": "Service error. Please try again later",
       "network_error": "Network error. Check your connection",
+      "ollama_not_running": "Cannot connect to Ollama. Please make sure Ollama is running (ollama serve).",
       "proxy_boot_failed": "Local proxy failed to start. Please check your runtime environment",
       "proxy_health_failed": "Local proxy health check failed. Please try again",
       "proxy_upstream_auth_failed": "Upstream authentication failed. Please verify your API key",
@@ -796,5 +798,14 @@
       "glob": "Search files by pattern",
       "grep": "Search file contents"
     }
+  },
+  "sudo": {
+    "title": "Administrator Permission Required",
+    "description": "The following command requires administrator privileges:",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Enter your password",
+    "cancel": "Cancel",
+    "execute": "Execute",
+    "warning": "Your password will only be used for this command and will not be stored."
   }
 }

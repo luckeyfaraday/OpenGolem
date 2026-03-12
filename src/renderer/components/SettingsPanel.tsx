@@ -757,6 +757,11 @@ function APISettingsTab() {
           <label htmlFor="enable-thinking" className="space-y-0.5 flex-1">
             <div className="text-text-primary font-medium">{t('api.enableThinking')}</div>
             <div>{t('api.enableThinkingHint')}</div>
+            {isOllamaMode && (
+              <div className="text-amber-500 dark:text-amber-400 text-xs mt-1">
+                {t('api.enableThinkingOllamaHint')}
+              </div>
+            )}
           </label>
         </div>
       </div>

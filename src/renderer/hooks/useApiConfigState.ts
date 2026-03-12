@@ -1039,6 +1039,11 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
       return;
     }
 
+    if (provider === 'ollama' && !baseUrl.trim()) {
+      showErrorKey('api.testError.missing_base_url');
+      return;
+    }
+
     clearError();
     setIsTesting(true);
     setTestResult(null);
@@ -1136,6 +1141,19 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     showErrorText,
   ]);
 
+  // Auto-refresh model list when Ollama baseUrl changes (debounced).
+  // Only fires for URLs that look plausible (start with http(s):// and have a host).
+  useEffect(() => {
+    if (provider !== 'ollama') return;
+    const trimmed = baseUrl.trim();
+    if (!trimmed || !/^https?:\/\/.{3,}/i.test(trimmed)) return;
+    const timer = setTimeout(() => {
+      void refreshModelOptions();
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, baseUrl]);
+
   const handleSave = useCallback(
     async (options?: { silentSuccess?: boolean }) => {
       if (requiresApiKey && !apiKey.trim()) {
@@ -1149,6 +1167,11 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
         return false;
       }
 
+      if (provider === 'ollama' && !baseUrl.trim()) {
+        showErrorKey('api.testError.missing_base_url');
+        return false;
+      }
+
       clearError();
       setIsSaving(true);
       try {
@@ -1156,6 +1179,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
           provider === 'custom' || provider === 'ollama'
             ? baseUrl.trim()
             : (currentPreset.baseUrl || baseUrl).trim();
+
         const persistedProfiles = toPersistedProfiles(profiles);
 
         const payload: Partial<AppConfig> = {

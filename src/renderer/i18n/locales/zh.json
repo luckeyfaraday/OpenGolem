@@ -141,6 +141,7 @@
     "liveTestCompatibilityHint": "部分兼容服务可能不支持该探测请求，失败时可关闭后重试。",
     "enableThinking": "启用思考模式",
     "enableThinkingHint": "显示 Claude 的思考过程。这提供更多透明度，但可能增加 token 消耗。",
+    "enableThinkingOllamaHint": "大多数 Ollama 模型不支持思考模式，仅在模型明确支持时启用。",
     "testSuccess": "连接成功（{{ms}}ms）",
     "testSuccessNeedSave": "连接测试成功，请点击“保存设置”后再开始会话。",
     "testError": {
@@ -151,6 +152,7 @@
       "rate_limited": "请求过于频繁或额度不足",
       "server_error": "服务端错误，请稍后再试",
       "network_error": "网络连接失败，请检查网络或地址",
+      "ollama_not_running": "无法连接 Ollama，请确认 Ollama 已启动（ollama serve）",
       "proxy_boot_failed": "本地代理启动失败，请检查运行环境后重试",
       "proxy_health_failed": "本地代理健康检查失败，请稍后重试",
       "proxy_upstream_auth_failed": "上游服务鉴权失败，请检查 API Key",
@@ -796,5 +798,14 @@
       "glob": "按模式搜索文件",
       "grep": "搜索文件内容"
     }
+  },
+  "sudo": {
+    "title": "需要管理员权限",
+    "description": "以下命令需要管理员权限：",
+    "passwordLabel": "密码",
+    "passwordPlaceholder": "请输入密码",
+    "cancel": "取消",
+    "execute": "确认执行",
+    "warning": "密码仅用于本次命令执行，不会被保存。"
   }
 }
