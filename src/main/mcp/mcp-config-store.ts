@@ -3,6 +3,7 @@ import { app } from 'electron';
 import path from 'path';
 import type { MCPServerConfig } from './mcp-manager';
 import { log, logError } from '../utils/logger';
+import { getStableStoreCwd } from '../utils/persisted-store';
 
 /**
  * Preset MCP Server Configurations
@@ -65,9 +66,11 @@ class MCPConfigStore {
   constructor() {
     this.store = new Store<{ servers: MCPServerConfig[] }>({
       name: 'mcp-config',
+      cwd: getStableStoreCwd(),
       defaults: {
         servers: [],
       },
+      clearInvalidConfig: true,
     });
   }
 

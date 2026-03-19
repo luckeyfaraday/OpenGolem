@@ -10,6 +10,8 @@ import {
   Edit3,
   Plug,
   RefreshCw,
+  Link2,
+  LogOut,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { AppConfig, ApiTestResult } from '../types';
@@ -26,13 +28,16 @@ interface ConfigModalProps {
 }
 
 const PROVIDER_LABELS: Record<
-  'openrouter' | 'anthropic' | 'openai' | 'gemini' | 'ollama' | 'custom',
+  'openrouter' | 'anthropic' | 'openai' | 'openai-codex' | 'gemini' | 'google-gemini-cli' | 'google-antigravity' | 'ollama' | 'custom',
   string
 > = {
   openrouter: 'OpenRouter',
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  'openai-codex': 'ChatGPT Codex',
   gemini: 'Gemini',
+  'google-gemini-cli': 'Gemini CLI',
+  'google-antigravity': 'Antigravity',
   ollama: 'Ollama',
   custom: 'Custom',
 };
@@ -67,8 +72,11 @@ export function ConfigModal({
     isDiscoveringLocalOllama,
     testResult,
     friendlyTestDetails,
+    oauthStatus,
+    isOAuthMode,
+    isAuthenticatingOAuth,
     isOllamaMode,
-    requiresApiKey,
+    hasRequiredCredentials,
     protocolGuidanceText,
     protocolGuidanceTone,
     baseUrlGuidanceText,
@@ -89,6 +97,8 @@ export function ConfigModal({
     applyCommonProviderSetup,
     changeProvider,
     changeProtocol,
+    connectOAuth,
+    disconnectOAuth,
     requestConfigSetSwitch,
     requestCreateBlankConfigSet,
     cancelPendingConfigSetAction,
@@ -200,7 +210,17 @@ export function ConfigModal({
               {t('api.provider')}
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {(['openrouter', 'anthropic', 'openai', 'gemini', 'ollama', 'custom'] as const).map(
+              {([
+                'openrouter',
+                'anthropic',
+                'openai',
+                'openai-codex',
+                'gemini',
+                'google-gemini-cli',
+                'google-antigravity',
+                'ollama',
+                'custom',
+              ] as const).map(
                 (p) => (
                   <button
                     key={p}
@@ -220,23 +240,70 @@ export function ConfigModal({
             </div>
           </div>
 
-          {/* API Key */}
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
-              <Key className="w-4 h-4" />
-              {t('api.apiKey')}
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={currentPreset?.keyPlaceholder || t('api.enterApiKey')}
-              className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
-            />
-            {currentPreset?.keyHint && (
-              <p className="text-xs text-text-muted">{currentPreset.keyHint}</p>
-            )}
-          </div>
+          {isOAuthMode ? (
+            <div className="space-y-3 rounded-[1.5rem] border border-border-subtle bg-background/40 px-4 py-4">
+              <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
+                <Link2 className="w-4 h-4" />
+                {t('api.oauthConnection')}
+              </label>
+              <p className="text-xs text-text-muted">{t('api.oauthDescription')}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-3 py-1 text-xs font-medium ${oauthStatus?.connected ? 'bg-success/10 text-success' : 'bg-surface-hover text-text-secondary'}`}>
+                  {oauthStatus?.connected ? t('api.oauthConnected') : t('api.oauthDisconnected')}
+                </span>
+                {oauthStatus?.email && (
+                  <span className="text-xs text-text-secondary">{oauthStatus.email}</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void connectOAuth();
+                  }}
+                  disabled={isAuthenticatingOAuth}
+                  className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                >
+                  {isAuthenticatingOAuth ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Link2 className="h-4 w-4" />
+                  )}
+                  {oauthStatus?.connected ? t('api.oauthReconnect') : t('api.oauthConnect')}
+                </button>
+                {oauthStatus?.connected && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void disconnectOAuth();
+                    }}
+                    disabled={isAuthenticatingOAuth}
+                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    {t('api.oauthDisconnect')}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
+                <Key className="w-4 h-4" />
+                {t('api.apiKey')}
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={currentPreset?.keyPlaceholder || t('api.enterApiKey')}
+                className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+              />
+              {currentPreset?.keyHint && (
+                <p className="text-xs text-text-muted">{currentPreset.keyHint}</p>
+              )}
+            </div>
+          )}
 
           {/* Custom Protocol */}
           {provider === 'custom' && (
@@ -447,7 +514,7 @@ export function ConfigModal({
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={handleTest}
-              disabled={isTesting || (requiresApiKey && !apiKey.trim())}
+              disabled={isTesting || !hasRequiredCredentials}
               className="w-full py-3 px-4 rounded-xl border border-border bg-surface text-text-primary font-medium hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
             >
               {isTesting ? (
@@ -466,7 +533,7 @@ export function ConfigModal({
               onClick={() => {
                 void handleSave();
               }}
-              disabled={isSaving || (requiresApiKey && !apiKey.trim())}
+              disabled={isSaving || !hasRequiredCredentials}
               className="w-full py-3 px-4 rounded-xl bg-accent text-white font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
             >
               {isSaving ? (

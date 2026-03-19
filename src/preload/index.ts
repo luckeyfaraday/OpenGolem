@@ -17,6 +17,8 @@ import type {
   ScheduleCreateInput,
   ScheduleUpdateInput,
   ProviderModelInfo,
+  OAuthProviderId,
+  OAuthProviderStatus,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
 
@@ -117,6 +119,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('config.diagnose', input),
     discoverLocal: (payload?: { baseUrl?: string }): Promise<{ available: boolean; baseUrl: string; models?: string[]; status: 'unavailable' | 'service_available' | 'model_usable' | 'model_unusable' | 'model_loading'; probeModel?: string; probeError?: string }> =>
       ipcRenderer.invoke('config.discover-local', payload),
+    getOAuthStatuses: (): Promise<Record<OAuthProviderId, OAuthProviderStatus>> =>
+      ipcRenderer.invoke('config.oauth.status'),
+    loginOAuth: (provider: OAuthProviderId): Promise<OAuthProviderStatus> =>
+      ipcRenderer.invoke('config.oauth.login', provider),
+    logoutOAuth: (provider: OAuthProviderId): Promise<OAuthProviderStatus> =>
+      ipcRenderer.invoke('config.oauth.logout', provider),
   },
 
   // Window control methods
@@ -368,6 +376,9 @@ declare global {
         listModels: (payload: { provider: AppConfig['provider']; apiKey: string; baseUrl?: string }) => Promise<ProviderModelInfo[]>;
         diagnose: (input: DiagnosticInput) => Promise<DiagnosticResult>;
         discoverLocal: (payload?: { baseUrl?: string }) => Promise<{ available: boolean; baseUrl: string; models?: string[]; status: 'unavailable' | 'service_available' | 'model_usable' | 'model_unusable' | 'model_loading'; probeModel?: string; probeError?: string }>;
+        getOAuthStatuses: () => Promise<Record<OAuthProviderId, OAuthProviderStatus>>;
+        loginOAuth: (provider: OAuthProviderId) => Promise<OAuthProviderStatus>;
+        logoutOAuth: (provider: OAuthProviderId) => Promise<OAuthProviderStatus>;
       };
       window: {
         minimize: () => void;

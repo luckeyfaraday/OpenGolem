@@ -5,9 +5,9 @@
  *
  * Goal:
  * - Bundle a standalone python3 into `resources/python/darwin-{arch}/`
- * - Preinstall required packages into `resources/python/darwin-{arch}/site-packages/`
+ * - Preinstall required packages into `resources/python/<platform>-<arch>/site-packages/`
  *   - Pillow (PIL)
- *   - pyobjc-framework-Quartz (import Quartz)
+ *   - pyobjc-framework-Quartz (macOS only, import Quartz)
  *
  * Runtime code (gui-operate-server) will prefer the bundled Python and add
  * `${pythonRoot}/site-packages` to PYTHONPATH.
@@ -39,11 +39,13 @@ const ABI = `cp${PYTHON_MINOR.replace('.', '')}`; // e.g. 3.12 -> cp312
 
 const GITHUB_REPO = process.env.OPEN_COWORK_PYTHON_STANDALONE_REPO || 'astral-sh/python-build-standalone';
 const RUNTIME_VERSION_FILENAME = 'runtime-version.txt';
-const BUNDLED_GUI_PACKAGES = [
-  'pillow',
-  'pyobjc-framework-Quartz',
-];
-const BUNDLED_RUNTIME_FINGERPRINT = BUNDLED_GUI_PACKAGES.join('|');
+function getBundledGuiPackages(platform) {
+  const packages = ['pillow'];
+  if (platform === 'darwin') {
+    packages.push('pyobjc-framework-Quartz');
+  }
+  return packages;
+}
 // Use the correct GitHub API endpoint (v3, no trailing slash)
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=30`;
 
@@ -323,11 +325,13 @@ function ensurePipAvailable(pythonBin) {
   }
 }
 
-function installPackages(siteDir, platformTag, pythonBin) {
+function installPackages(siteDir, platform, platformTag, pythonBin) {
   ensureDir(siteDir);
 
   const pipPython = process.env.OPEN_COWORK_PIP_PYTHON || pythonBin;
-  const packageSpecs = [...BUNDLED_GUI_PACKAGES];
+  const packageSpecs = getBundledGuiPackages(platform);
+  const runtimeFingerprint = packageSpecs.join('|');
+  const needsQuartz = packageSpecs.includes('pyobjc-framework-Quartz');
   const pythonRoot = path.resolve(siteDir, '..');
   const runtimeMarkerFile = resolveRuntimeVersionFile(pythonRoot);
   const runtimeMarker = exists(runtimeMarkerFile)
@@ -337,7 +341,8 @@ function installPackages(siteDir, platformTag, pythonBin) {
   // Avoid re-install if already present
   const hasPillow = exists(path.join(siteDir, 'PIL'));
   const hasQuartz = exists(path.join(siteDir, 'Quartz'));
-  if (hasPillow && hasQuartz && runtimeMarker === BUNDLED_RUNTIME_FINGERPRINT) {
+  const hasRequiredPackages = hasPillow && (!needsQuartz || hasQuartz);
+  if (hasRequiredPackages && runtimeMarker === runtimeFingerprint) {
     console.log(`✓ Python packages already present in ${siteDir}`);
     return;
   }
@@ -354,7 +359,7 @@ function installPackages(siteDir, platformTag, pythonBin) {
     `${packageSpecs.map((pkg) => JSON.stringify(pkg)).join(' ')}`;
 
   execSync(cmd, { stdio: 'inherit' });
-  fs.writeFileSync(runtimeMarkerFile, BUNDLED_RUNTIME_FINGERPRINT, 'utf-8');
+  fs.writeFileSync(runtimeMarkerFile, runtimeFingerprint, 'utf-8');
 }
 
 async function preparePlatformArch(platform, arch) {
@@ -400,7 +405,7 @@ async function preparePlatformArch(platform, arch) {
   }
 
   // Install packages for GUI automation
-  installPackages(siteDir, target.platformTag, pythonBin);
+  installPackages(siteDir, platform, target.platformTag, pythonBin);
 }
 
 async function main() {

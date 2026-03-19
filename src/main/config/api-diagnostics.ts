@@ -31,6 +31,8 @@ import type {
 import { log, logWarn } from '../utils/logger';
 import { probeWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import { withRetry } from '../utils/retry';
+import { isOAuthProvider } from '../oauth/oauth-store';
+import { resolveConfiguredApiKey } from '../oauth/oauth-provider-runtime';
 
 const STEP_NAMES: DiagnosticStepName[] = ['dns', 'tcp', 'tls', 'auth', 'model'];
 const TCP_TIMEOUT_MS = 5000;
@@ -132,6 +134,7 @@ function defaultPort(
 function isOpenAICompatible(input: DiagnosticInput): boolean {
   return (
     input.provider === 'openai' ||
+    input.provider === 'openai-codex' ||
     input.provider === 'ollama' ||
     input.provider === 'openrouter' ||
     (input.provider === 'custom' && input.customProtocol === 'openai')
@@ -148,6 +151,8 @@ function isAnthropicCompatible(input: DiagnosticInput): boolean {
 function isGeminiProtocol(input: DiagnosticInput): boolean {
   return (
     input.provider === 'gemini' ||
+    input.provider === 'google-gemini-cli' ||
+    input.provider === 'google-antigravity' ||
     (input.provider === 'custom' && input.customProtocol === 'gemini')
   );
 }
@@ -324,9 +329,17 @@ async function stepAuth(input: DiagnosticInput, step: DiagnosticStep): Promise<v
     step.latencyMs = 0;
     return;
   }
+  if (isOAuthProvider(input.provider)) {
+    step.status = 'skip';
+    step.latencyMs = 0;
+    return;
+  }
 
   const start = Date.now();
-  const apiKey = input.apiKey?.trim() || '';
+  const apiKey = await resolveConfiguredApiKey({
+    provider: input.provider,
+    apiKey: input.apiKey || '',
+  });
   const clientBaseUrl = resolveClientBaseUrl(input);
 
   try {

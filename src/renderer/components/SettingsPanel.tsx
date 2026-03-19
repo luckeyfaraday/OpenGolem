@@ -32,6 +32,8 @@ import {
   RefreshCw,
   Clock3,
   Copy,
+  Link2,
+  LogOut,
 } from 'lucide-react';
 import { useWindowSize } from '../hooks/useWindowSize';
 import type {
@@ -312,7 +314,7 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
               {t('settings.title')}
             </p>
             <h2 className="mt-1 text-[1.24rem] font-semibold tracking-[-0.03em] text-text-primary">
-              Open Cowork
+              OpenGolem
             </h2>
             <p className="mt-1 text-[11px] leading-4 text-text-muted">{t('settings.panelDesc')}</p>
           </div>
@@ -475,8 +477,11 @@ function APISettingsTab() {
     isRefreshingModels,
     isDiscoveringLocalOllama,
     enableThinking,
+    oauthStatus,
+    isOAuthMode,
+    isAuthenticatingOAuth,
     isOllamaMode,
-    requiresApiKey,
+    hasRequiredCredentials,
     protocolGuidanceText,
     protocolGuidanceTone,
     baseUrlGuidanceText,
@@ -500,6 +505,8 @@ function APISettingsTab() {
     applyCommonProviderSetup,
     changeProvider,
     changeProtocol,
+    connectOAuth,
+    disconnectOAuth,
     requestConfigSetSwitch,
     requestCreateBlankConfigSet,
     cancelPendingConfigSetAction,
@@ -555,7 +562,17 @@ function APISettingsTab() {
         </label>
         <p className="text-xs leading-5 text-text-muted">{t('api.providerDescription')}</p>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
-          {(['openrouter', 'anthropic', 'openai', 'gemini', 'ollama', 'custom'] as const).map(
+          {([
+            'openrouter',
+            'anthropic',
+            'openai',
+            'openai-codex',
+            'gemini',
+            'google-gemini-cli',
+            'google-antigravity',
+            'ollama',
+            'custom',
+          ] as const).map(
             (p) => (
               <button
                 key={p}
@@ -574,24 +591,69 @@ function APISettingsTab() {
         </div>
       </div>
 
-      {/* API Key */}
-      <div className="space-y-3 py-5 border-b border-border-muted">
-        <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
-          <Key className="w-4 h-4" />
-          {t('api.apiKey')}
-        </label>
-        <p className="text-xs leading-5 text-text-muted">{t('api.apiKeyDescription')}</p>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={currentPreset?.keyPlaceholder || t('api.enterApiKey')}
-          className="w-full px-4 py-3 rounded-lg bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
-        />
-        {currentPreset?.keyHint && (
-          <p className="text-xs text-text-muted">{currentPreset.keyHint}</p>
-        )}
-      </div>
+      {isOAuthMode ? (
+        <div className="space-y-3 py-5 border-b border-border-muted">
+          <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
+            <Link2 className="w-4 h-4" />
+            {t('api.oauthConnection')}
+          </label>
+          <p className="text-xs leading-5 text-text-muted">{t('api.oauthDescription')}</p>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className={`rounded-full px-3 py-1 text-xs font-medium ${oauthStatus?.connected ? 'bg-success/10 text-success' : 'bg-surface-hover text-text-secondary'}`}>
+              {oauthStatus?.connected ? t('api.oauthConnected') : t('api.oauthDisconnected')}
+            </span>
+            {oauthStatus?.email && <span className="text-text-secondary">{oauthStatus.email}</span>}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void connectOAuth();
+              }}
+              disabled={isAuthenticatingOAuth}
+              className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            >
+              {isAuthenticatingOAuth ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Link2 className="w-4 h-4" />
+              )}
+              {oauthStatus?.connected ? t('api.oauthReconnect') : t('api.oauthConnect')}
+            </button>
+            {oauthStatus?.connected && (
+              <button
+                type="button"
+                onClick={() => {
+                  void disconnectOAuth();
+                }}
+                disabled={isAuthenticatingOAuth}
+                className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
+              >
+                <LogOut className="w-4 h-4" />
+                {t('api.oauthDisconnect')}
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3 py-5 border-b border-border-muted">
+          <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
+            <Key className="w-4 h-4" />
+            {t('api.apiKey')}
+          </label>
+          <p className="text-xs leading-5 text-text-muted">{t('api.apiKeyDescription')}</p>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={currentPreset?.keyPlaceholder || t('api.enterApiKey')}
+            className="w-full px-4 py-3 rounded-lg bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+          />
+          {currentPreset?.keyHint && (
+            <p className="text-xs text-text-muted">{currentPreset.keyHint}</p>
+          )}
+        </div>
+      )}
 
       {/* Custom Protocol */}
       {provider === 'custom' && (
@@ -827,7 +889,7 @@ function APISettingsTab() {
         result={diagnosticResult}
         isRunning={isDiagnosing}
         onRunDiagnostics={handleDiagnose}
-        disabled={requiresApiKey && !apiKey.trim()}
+        disabled={!hasRequiredCredentials}
       />
 
       {/* Save Button */}
@@ -837,7 +899,7 @@ function APISettingsTab() {
             onClick={() => {
               void handleSave();
             }}
-            disabled={isSaving || (requiresApiKey && !apiKey.trim())}
+            disabled={isSaving || !hasRequiredCredentials}
             className="w-full py-3 px-4 rounded-lg bg-accent text-white font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
           >
             {isSaving ? (
@@ -4673,7 +4735,7 @@ function GeneralTab() {
       {/* About */}
       {appVer && (
         <div className="pt-4 border-t border-border">
-          <p className="text-xs text-text-muted">Open Cowork v{appVer}</p>
+          <p className="text-xs text-text-muted">OpenGolem v{appVer}</p>
         </div>
       )}
     </div>

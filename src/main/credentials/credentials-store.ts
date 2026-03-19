@@ -2,6 +2,7 @@ import Store from 'electron-store';
 import * as crypto from 'crypto';
 import * as os from 'os';
 import { log } from '../utils/logger';
+import { deriveStableStoreKey, getStableStoreCwd } from '../utils/persisted-store';
 
 /**
  * User Credential - stored information for automated login
@@ -36,9 +37,11 @@ class CredentialsStore {
   constructor() {
     this.store = new Store<{ credentials: StoredCredential[] }>({
       name: 'credentials',
+      cwd: getStableStoreCwd(),
       defaults: {
         credentials: [],
       },
+      clearInvalidConfig: true,
     });
   }
 
@@ -48,6 +51,10 @@ class CredentialsStore {
    * regenerated from values unique to this installation.
    */
   private static getDerivedKey(): Buffer {
+    return deriveStableStoreKey('open-cowork-credentials-v2', 'open-cowork-salt');
+  }
+
+  private static getLegacyDerivedKey(): Buffer {
     const seed = `${os.hostname()}:${__dirname}:open-cowork-credentials`;
     return crypto.scryptSync(seed, 'open-cowork-salt', 32);
   }
@@ -70,14 +77,27 @@ class CredentialsStore {
    * Decrypt a password
    */
   private decrypt(encrypted: string, iv: string): string {
-    const decipher = crypto.createDecipheriv(
-      'aes-256-cbc',
+    const keys = [
       CredentialsStore.getDerivedKey(),
-      Buffer.from(iv, 'hex')
-    );
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+      CredentialsStore.getLegacyDerivedKey(),
+    ];
+
+    for (const key of keys) {
+      try {
+        const decipher = crypto.createDecipheriv(
+          'aes-256-cbc',
+          key,
+          Buffer.from(iv, 'hex')
+        );
+        let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+      } catch {
+        // Try the next key.
+      }
+    }
+
+    throw new Error('Failed to decrypt saved credential with current or legacy key.');
   }
 
   /**

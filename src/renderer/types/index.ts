@@ -427,7 +427,16 @@ export interface ExecutionContext {
 }
 
 // App Config types
-export type ProviderType = 'openrouter' | 'anthropic' | 'custom' | 'openai' | 'gemini' | 'ollama';
+export type ProviderType =
+  | 'openrouter'
+  | 'anthropic'
+  | 'custom'
+  | 'openai'
+  | 'gemini'
+  | 'ollama'
+  | 'openai-codex'
+  | 'google-gemini-cli'
+  | 'google-antigravity';
 export type CustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 export type ProviderProfileKey =
   | 'openrouter'
@@ -435,6 +444,9 @@ export type ProviderProfileKey =
   | 'openai'
   | 'gemini'
   | 'ollama'
+  | 'openai-codex'
+  | 'google-gemini-cli'
+  | 'google-antigravity'
   | 'custom:anthropic'
   | 'custom:openai'
   | 'custom:gemini';
@@ -501,11 +513,23 @@ export interface ProviderPresets {
   openai: ProviderPreset;
   gemini: ProviderPreset;
   ollama: ProviderPreset;
+  'openai-codex': ProviderPreset;
+  'google-gemini-cli': ProviderPreset;
+  'google-antigravity': ProviderPreset;
 }
 
 export interface ProviderModelInfo {
   id: string;
   name: string;
+}
+
+export type OAuthProviderId = 'openai-codex' | 'google-gemini-cli' | 'google-antigravity';
+
+export interface OAuthProviderStatus {
+  provider: OAuthProviderId;
+  connected: boolean;
+  email?: string;
+  expiresAt?: number;
 }
 
 export interface ApiTestInput {

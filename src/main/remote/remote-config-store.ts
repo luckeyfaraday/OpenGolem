@@ -4,9 +4,8 @@
  */
 
 import Store from 'electron-store';
-import * as crypto from 'crypto';
-import * as os from 'os';
 import { log } from '../utils/logger';
+import { deriveStableStoreKey, getStableStoreCwd } from '../utils/persisted-store';
 import type {
   RemoteConfig,
   GatewayConfig,
@@ -23,18 +22,19 @@ class RemoteConfigStore {
   private store: Store<RemoteConfig & { pairedUsers: PairedUser[] }>;
 
   private static getRemoteKey(): Buffer {
-    const seed = `${os.hostname()}:${__dirname}:open-cowork-remote-v1`;
-    return crypto.scryptSync(seed, 'open-cowork-remote-salt', 32);
+    return deriveStableStoreKey('open-cowork-remote-v2', 'open-cowork-remote-salt');
   }
 
   constructor() {
     this.store = new Store<RemoteConfig & { pairedUsers: PairedUser[] }>({
       name: 'remote-config',
+      cwd: getStableStoreCwd(),
       defaults: {
         ...DEFAULT_REMOTE_CONFIG,
         pairedUsers: [],
       },
       encryptionKey: RemoteConfigStore.getRemoteKey().toString('hex'),
+      clearInvalidConfig: true,
     });
     
     // Migrate: change pairing mode to allowlist (allow everyone by default)

@@ -11,7 +11,15 @@ import {
 import { log, logWarn } from '../utils/logger';
 import { normalizeGeneratedTitle } from '../session/session-title-utils';
 import { getSharedAuthStorage } from './shared-auth';
-import { applyPiModelRuntimeOverrides, buildSyntheticPiModel, inferPiApi, resolvePiModelString, resolvePiRegistryModel } from './pi-model-resolution';
+import {
+  applyPiModelRuntimeOverrides,
+  buildSyntheticPiModel,
+  inferPiApi,
+  resolvePiModelString,
+  resolvePiProtocol,
+  resolvePiRegistryModel,
+} from './pi-model-resolution';
+import { getPiProviderForConfig, resolveConfiguredApiKey } from '../oauth/oauth-provider-runtime';
 
 const NETWORK_ERROR_RE = /enotfound|econnrefused|etimedout|eai_again|enetunreach|timed?\s*out|timeout|abort|network\s*error/i;
 const AUTH_ERROR_RE = /authentication[_\s-]?failed|unauthorized|invalid[_\s-]?api[_\s-]?key|forbidden|401|403/i;
@@ -30,8 +38,9 @@ function resolveCustomProtocol(provider: AppConfig['provider'], customProtocol?:
   }
   if (provider === 'ollama') return 'openai';
   if (provider === 'openai') return 'openai';
+  if (provider === 'openai-codex') return 'openai';
   if (provider === 'openrouter') return 'openai';
-  if (provider === 'gemini') return 'gemini';
+  if (provider === 'gemini' || provider === 'google-gemini-cli' || provider === 'google-antigravity') return 'gemini';
   return 'anthropic';
 }
 
@@ -44,16 +53,20 @@ function resolveProbeBaseUrl(input: ApiTestInput): string | undefined {
   return undefined;
 }
 
-function resolveProbeApiKey(
+async function resolveProbeApiKey(
   input: ApiTestInput,
   resolvedCustomProtocol: CustomProtocolType,
   effectiveBaseUrl: string | undefined,
   explicitApiKey: string | undefined,
   config: AppConfig,
-): string {
+): Promise<string> {
   const candidateApiKey = explicitApiKey ?? config.apiKey?.trim() ?? '';
   if (candidateApiKey) {
     return candidateApiKey;
+  }
+
+  if (input.provider === 'openai-codex' || input.provider === 'google-gemini-cli' || input.provider === 'google-antigravity') {
+    return resolveConfiguredApiKey({ provider: input.provider, apiKey: config.apiKey || '' });
   }
 
   if (input.provider === 'ollama') {
@@ -97,7 +110,7 @@ function resolveProbeApiKey(
   return '';
 }
 
-function buildProbeConfig(input: ApiTestInput, config: AppConfig): AppConfig {
+async function buildProbeConfig(input: ApiTestInput, config: AppConfig): Promise<AppConfig> {
   const resolvedBaseUrl = resolveProbeBaseUrl(input);
   const normalizedInputApiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : undefined;
   const resolvedCustomProtocol = resolveCustomProtocol(input.provider, input.customProtocol);
@@ -105,7 +118,7 @@ function buildProbeConfig(input: ApiTestInput, config: AppConfig): AppConfig {
   const effectiveBaseUrl = resolvedCustomProtocol === 'openai' || resolvedCustomProtocol === 'gemini'
     ? effectiveRawBaseUrl
     : normalizeAnthropicBaseUrl(effectiveRawBaseUrl);
-  const effectiveApiKey = resolveProbeApiKey(
+  const effectiveApiKey = await resolveProbeApiKey(
     input,
     resolvedCustomProtocol,
     effectiveBaseUrl,
@@ -157,10 +170,13 @@ async function runPiAiOneShot(
   config: AppConfig,
 ): Promise<{ text: string; hasThinking: boolean; durationMs: number }> {
   const modelString = resolvePiModelString(config);
-  const keyProvider = config.customProtocol || config.provider || 'anthropic';
+  const keyProvider = getPiProviderForConfig(config);
   const parts = modelString.split('/');
   const provider = parts.length >= 2 ? parts[0] : (keyProvider || 'anthropic');
-  const modelId = parts.length >= 2 ? parts.slice(1).join('/') : parts[0];
+  // For OpenRouter models, preserve the full model ID (e.g., 'openrouter/hunter-alpha')
+  // because OpenRouter API requires the full prefixed model name
+  const isProviderOpenRouter = parts.length >= 2 && parts[0] === 'openrouter';
+  const modelId = isProviderOpenRouter ? modelString : (parts.length >= 2 ? parts.slice(1).join('/') : parts[0]);
   let piModel = resolvePiRegistryModel(modelString, {
     configProvider: keyProvider,
     customBaseUrl: config.baseUrl?.trim() || undefined,
@@ -170,9 +186,9 @@ async function runPiAiOneShot(
 
   if (!piModel) {
     // Synthetic fallback for unknown/custom models
-    const effectiveProtocol = resolveCustomProtocol(config.provider, config.customProtocol);
-    const api = config.baseUrl?.trim() ? inferPiApi(effectiveProtocol) : undefined;
-    piModel = buildSyntheticPiModel(modelId, provider, effectiveProtocol, config.baseUrl?.trim() || '', api);
+    const syntheticProtocol = resolvePiProtocol(config.provider, resolveCustomProtocol(config.provider, config.customProtocol));
+    const api = config.baseUrl?.trim() ? inferPiApi(syntheticProtocol) : undefined;
+    piModel = buildSyntheticPiModel(modelId, provider, syntheticProtocol, config.baseUrl?.trim() || '', api);
     piModel = applyPiModelRuntimeOverrides(piModel, {
       configProvider: keyProvider,
       customBaseUrl: config.baseUrl?.trim() || undefined,
@@ -186,7 +202,7 @@ async function runPiAiOneShot(
   const resolvedModel = piModel!;
 
   // Set API key via AuthStorage (for agent sessions) AND env vars (for pi-ai completeSimple)
-  const apiKey = config.apiKey?.trim();
+  const apiKey = await resolveConfiguredApiKey(config);
   if (apiKey) {
     const authStorage = getSharedAuthStorage();
     // Set for the config provider
@@ -226,7 +242,7 @@ function normalizeProbeAck(raw: string): string {
 }
 
 export async function probeWithClaudeSdk(input: ApiTestInput, config: AppConfig): Promise<ApiTestResult> {
-  const probeConfig = buildProbeConfig(input, config);
+  const probeConfig = await buildProbeConfig(input, config);
 
   if (input.provider === 'custom' && !probeConfig.baseUrl?.trim()) {
     return { ok: false, errorType: 'missing_base_url' };

@@ -7,6 +7,7 @@ import type {
   ApiTestResult,
   CustomProtocolType,
   DiagnosticResult,
+  OAuthProviderStatus,
   ProviderModelInfo,
   ProviderProfile,
   ProviderProfileKey,
@@ -75,10 +76,23 @@ const PROFILE_KEYS: ProviderProfileKey[] = [
   'openai',
   'gemini',
   'ollama',
+  'openai-codex',
+  'google-gemini-cli',
+  'google-antigravity',
   'custom:anthropic',
   'custom:openai',
   'custom:gemini',
 ];
+
+const OAUTH_PROVIDER_IDS = [
+  'openai-codex',
+  'google-gemini-cli',
+  'google-antigravity',
+] as const satisfies ProviderType[];
+
+function isOAuthProvider(provider: ProviderType): provider is (typeof OAUTH_PROVIDER_IDS)[number] {
+  return (OAUTH_PROVIDER_IDS as readonly ProviderType[]).includes(provider);
+}
 
 function isProfileKey(value: unknown): value is ProviderProfileKey {
   return typeof value === 'string' && PROFILE_KEYS.includes(value as ProviderProfileKey);
@@ -91,7 +105,10 @@ function isProviderType(value: unknown): value is ProviderType {
     value === 'custom' ||
     value === 'openai' ||
     value === 'gemini' ||
-    value === 'ollama'
+    value === 'ollama' ||
+    value === 'openai-codex' ||
+    value === 'google-gemini-cli' ||
+    value === 'google-antigravity'
   );
 }
 
@@ -121,6 +138,15 @@ export function profileKeyToProvider(profileKey: ProviderProfileKey): {
 } {
   if (profileKey === 'ollama') {
     return { provider: 'ollama', customProtocol: 'openai' };
+  }
+  if (profileKey === 'openai-codex') {
+    return { provider: 'openai-codex', customProtocol: 'openai' };
+  }
+  if (profileKey === 'google-gemini-cli') {
+    return { provider: 'google-gemini-cli', customProtocol: 'gemini' };
+  }
+  if (profileKey === 'google-antigravity') {
+    return { provider: 'google-antigravity', customProtocol: 'gemini' };
   }
   if (profileKey === 'custom:openai') {
     return { provider: 'custom', customProtocol: 'openai' };
@@ -615,6 +641,8 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const [testResult, setTestResult] = useState<ApiTestResult | null>(null);
   const [diagnosticResult, setDiagnosticResult] = useState<DiagnosticResult | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [oauthStatuses, setOAuthStatuses] = useState<Partial<Record<ProviderType, OAuthProviderStatus>>>({});
+  const [isAuthenticatingOAuth, setIsAuthenticatingOAuth] = useState(false);
   const ollamaRefreshRequestIdRef = useRef(0);
   const latestOllamaTargetRef = useRef<{
     activeProfileKey: ProviderProfileKey;
@@ -702,6 +730,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const useCustomModel = currentProfile.useCustomModel;
   const contextWindow = currentProfile.contextWindow;
   const maxTokens = currentProfile.maxTokens;
+  const oauthStatus = isOAuthProvider(provider) ? oauthStatuses[provider] : undefined;
   const detectedProviderSetup = useMemo(
     () => (provider === 'custom' ? detectCommonProviderSetup(baseUrl) : null),
     [baseUrl, provider]
@@ -845,11 +874,15 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
 
   const allowEmptyApiKey =
     provider === 'ollama' ||
+    isOAuthProvider(provider) ||
     (provider === 'custom' &&
       ((customProtocol === 'anthropic' && isCustomAnthropicLoopbackGateway(baseUrl)) ||
         (customProtocol === 'openai' && isCustomOpenAiLoopbackGateway(baseUrl)) ||
         (customProtocol === 'gemini' && isCustomGeminiLoopbackGateway(baseUrl))));
   const requiresApiKey = !allowEmptyApiKey;
+  const hasRequiredCredentials = isOAuthProvider(provider)
+    ? Boolean(oauthStatus?.connected)
+    : (!requiresApiKey || Boolean(apiKey.trim()));
   const currentDraftSignature = useMemo(
     () => buildApiConfigDraftSignature(activeProfileKey, profiles, enableThinking),
     [activeProfileKey, profiles, enableThinking]
@@ -892,6 +925,14 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     },
     []
   );
+
+  const refreshOAuthStatuses = useCallback(async () => {
+    if (!isElectron) {
+      return;
+    }
+    const statuses = await window.electronAPI.config.getOAuthStatuses();
+    setOAuthStatuses(statuses);
+  }, []);
 
   const applyPersistedConfigToStore = useCallback(
     (config: AppConfig, loadedPresets: ProviderPresets) => {
@@ -1033,6 +1074,12 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
           ? await window.electronAPI.config.getPresets()
           : FALLBACK_PROVIDER_PRESETS;
         const config = initialConfig || (isElectron ? await window.electronAPI.config.get() : null);
+        if (isElectron) {
+          const statuses = await window.electronAPI.config.getOAuthStatuses();
+          if (!cancelled) {
+            setOAuthStatuses(statuses);
+          }
+        }
         if (cancelled) {
           return;
         }
@@ -1067,6 +1114,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     clearError,
     customModel,
     model,
+    oauthStatus?.connected,
     useCustomModel,
   ]);
 
@@ -1113,8 +1161,8 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   }, [activeProfileKey, baseUrl, provider, presets]);
 
   const handleTest = useCallback(async () => {
-    if (requiresApiKey && !apiKey.trim()) {
-      showErrorKey('api.testError.missing_key');
+    if (!hasRequiredCredentials) {
+      showErrorKey(isOAuthProvider(provider) ? 'api.oauthLoginRequired' : 'api.testError.missing_key');
       return;
     }
 
@@ -1168,6 +1216,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     model,
     provider,
     requiresApiKey,
+    hasRequiredCredentials,
     hasUnsavedChanges,
     clearError,
     clearSuccessMessage,
@@ -1177,8 +1226,8 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   ]);
 
   const handleDiagnose = useCallback(async () => {
-    if (requiresApiKey && !apiKey.trim()) {
-      showErrorKey('api.testError.missing_key');
+    if (!hasRequiredCredentials) {
+      showErrorKey(isOAuthProvider(provider) ? 'api.oauthLoginRequired' : 'api.testError.missing_key');
       return;
     }
 
@@ -1220,7 +1269,50 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     clearError,
     showErrorKey,
     showErrorText,
+    hasRequiredCredentials,
   ]);
+
+  const connectOAuth = useCallback(async () => {
+    if (!isElectron || !isOAuthProvider(provider)) {
+      return false;
+    }
+    clearError();
+    clearSuccessMessage();
+    setIsAuthenticatingOAuth(true);
+    try {
+      const status = await window.electronAPI.config.loginOAuth(provider);
+      setOAuthStatuses((prev) => ({ ...prev, [provider]: status }));
+      showSuccessKey('api.oauthLoginSuccess');
+      setTimeout(() => clearSuccessMessage(), 2500);
+      return true;
+    } catch (error) {
+      showErrorText(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      setIsAuthenticatingOAuth(false);
+    }
+  }, [clearError, clearSuccessMessage, provider, showErrorText, showSuccessKey]);
+
+  const disconnectOAuth = useCallback(async () => {
+    if (!isElectron || !isOAuthProvider(provider)) {
+      return false;
+    }
+    clearError();
+    clearSuccessMessage();
+    setIsAuthenticatingOAuth(true);
+    try {
+      const status = await window.electronAPI.config.logoutOAuth(provider);
+      setOAuthStatuses((prev) => ({ ...prev, [provider]: status }));
+      showSuccessKey('api.oauthLogoutSuccess');
+      setTimeout(() => clearSuccessMessage(), 2500);
+      return true;
+    } catch (error) {
+      showErrorText(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      setIsAuthenticatingOAuth(false);
+    }
+  }, [clearError, clearSuccessMessage, provider, showErrorText, showSuccessKey]);
 
   const refreshModelOptions = useCallback(async () => {
     if (!isElectron || provider !== 'ollama') {
@@ -1514,8 +1606,8 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
 
   const handleSave = useCallback(
     async (options?: { silentSuccess?: boolean }) => {
-      if (requiresApiKey && !apiKey.trim()) {
-        showErrorKey('api.testError.missing_key');
+      if (!hasRequiredCredentials) {
+        showErrorKey(isOAuthProvider(provider) ? 'api.oauthLoginRequired' : 'api.testError.missing_key');
         return false;
       }
 
@@ -1594,6 +1686,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
       profiles,
       provider,
       requiresApiKey,
+      hasRequiredCredentials,
       clearError,
       clearSuccessMessage,
       showErrorKey,
@@ -1876,9 +1969,13 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     friendlyTestDetails,
     diagnosticResult,
     isDiagnosing,
+    oauthStatus,
+    isOAuthMode: isOAuthProvider(provider),
+    isAuthenticatingOAuth,
     handleDiagnose,
     isOllamaMode: provider === 'ollama',
     requiresApiKey,
+    hasRequiredCredentials,
     detectedProviderSetup,
     protocolGuidanceText,
     protocolGuidanceTone,
@@ -1904,6 +2001,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     applyCommonProviderSetup,
     changeProvider,
     changeProtocol,
+    connectOAuth,
+    disconnectOAuth,
+    refreshOAuthStatuses,
     requestConfigSetSwitch,
     requestCreateBlankConfigSet,
     cancelPendingConfigSetAction,

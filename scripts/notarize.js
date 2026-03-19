@@ -20,7 +20,7 @@ exports.default = async function afterSign(context) {
     return;
   }
 
-  const appId = 'com.opencowork.app';
+  const appId = 'com.opengolem.app';
   const appName = context.packager.appInfo.productFilename;
   const appPath = `${appOutDir}/${appName}.app`;
 

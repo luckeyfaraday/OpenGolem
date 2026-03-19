@@ -1,8 +1,6 @@
 import Store from 'electron-store';
-import { app } from 'electron';
-import os from 'node:os';
-import path from 'node:path';
 import type { InstalledPlugin } from '../../renderer/types';
+import { getStableStoreCwd } from '../utils/persisted-store';
 
 interface PluginRegistrySchema {
   plugins: InstalledPlugin[];
@@ -12,32 +10,16 @@ class PluginRegistryStore {
   private readonly store: Store<PluginRegistrySchema>;
 
   constructor() {
-    const storeCwd = this.resolveStoreCwd();
     const storeOptions: any = {
       name: 'plugin-registry',
-      cwd: storeCwd,
+      cwd: getStableStoreCwd(),
       defaults: {
         plugins: [],
       },
+      clearInvalidConfig: true,
     };
 
-    // 在非 Electron 进程中提供兜底项目名，避免底层 conf 初始化失败。
-    if (typeof process !== 'undefined' && !process.versions.electron) {
-      storeOptions.projectName = 'open-cowork';
-    }
-
     this.store = new Store<PluginRegistrySchema>(storeOptions);
-  }
-
-  private resolveStoreCwd(): string {
-    try {
-      if (typeof app?.getPath === 'function') {
-        return app.getPath('userData');
-      }
-    } catch {
-      // 测试或非 Electron 场景走兜底目录。
-    }
-    return path.join(os.tmpdir(), 'open-cowork');
   }
 
   list(): InstalledPlugin[] {

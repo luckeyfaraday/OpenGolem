@@ -837,7 +837,7 @@ async function callVisionAPI(
     
     if (isOpenRouter) {
       headers['HTTP-Referer'] = 'https://github.com/OpenCoworkAI/open-cowork';
-      headers['X-Title'] = 'Open Cowork';
+      headers['X-Title'] = 'OpenGolem';
     }
     
     return new Promise<string>((resolve, reject) => {

@@ -4,6 +4,11 @@ import { isOfficialOpenAIBaseUrl } from '../config/auth-utils';
 const COMMON_FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google'] as const;
 const INVALID_REGISTRY_PROVIDERS = new Set(['', 'custom']);
 const REASONING_MODEL_PATTERN = /\bthinking\b|\breasoner\b|deepseek-r1|kimi-k2/i;
+const DIRECT_PROVIDER_PREFIXES = new Set([
+  'openai-codex',
+  'google-gemini-cli',
+  'google-antigravity',
+]);
 type PiRegistryProvider = Parameters<typeof getModel>[0];
 
 export interface PiModelStringInput {
@@ -45,13 +50,28 @@ export function inferPiApi(protocol: string): string {
   switch (protocol) {
     case 'anthropic':
       return 'anthropic-messages';
+    case 'google-gemini-cli':
+    case 'google-antigravity':
+      return 'google-gemini-cli';
     case 'gemini':
     case 'google':
       return 'google-generative-ai';
+    case 'openai-codex':
+      return 'openai-codex-responses';
     case 'openai':
     default:
       return 'openai-completions';
   }
+}
+
+export function resolvePiProtocol(
+  provider?: string,
+  customProtocol?: string,
+): string {
+  if (provider && DIRECT_PROVIDER_PREFIXES.has(provider)) {
+    return provider;
+  }
+  return customProtocol || provider || 'anthropic';
 }
 
 /**
@@ -125,7 +145,9 @@ export function resolvePiModelString(input: PiModelStringInput): string {
     return model;
   }
   const provider = input.provider || 'anthropic';
-  const protocol = input.customProtocol || provider;
+  const protocol = DIRECT_PROVIDER_PREFIXES.has(provider)
+    ? provider
+    : (input.customProtocol || provider);
   return `${protocol}/${model}`;
 }
 
@@ -228,6 +250,12 @@ export function applyPiModelRuntimeOverrides(
     if (nextModel.api !== targetApi) {
       nextModel = { ...nextModel, api: targetApi } as typeof nextModel;
     }
+  }
+
+  // For OpenRouter models, ensure the model ID includes the 'openrouter/' prefix
+  // because OpenRouter API requires the full prefixed model name (e.g., 'openrouter/hunter-alpha')
+  if (effectiveProvider === 'openrouter' && !nextModel.id.startsWith('openrouter/')) {
+    nextModel = { ...nextModel, id: `openrouter/${nextModel.id}`, name: `openrouter/${nextModel.name || nextModel.id}` } as typeof nextModel;
   }
 
   return nextModel;

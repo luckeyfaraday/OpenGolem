@@ -12,9 +12,8 @@
  * Dependencies: electron-store, auth-utils, api-model-presets
  */
 import Store from 'electron-store';
-import * as crypto from 'crypto';
-import * as os from 'os';
 import { log, logWarn } from '../utils/logger';
+import { deriveStableStoreKey, getStableStoreCwd } from '../utils/persisted-store';
 import {
   isOpenAIProvider,
   isOllamaLegacyCustomOpenAIConfig,
@@ -28,11 +27,21 @@ import {
   shouldUseAnthropicAuthToken,
 } from './auth-utils';
 import { API_PROVIDER_PRESETS, PI_AI_CURATED_PRESETS } from '../../shared/api-model-presets';
+import { hasSavedOAuthCredentials, isOAuthProvider } from '../oauth/oauth-store';
 
 /**
  * Application configuration schema
  */
-export type ProviderType = 'openrouter' | 'anthropic' | 'custom' | 'openai' | 'gemini' | 'ollama';
+export type ProviderType =
+  | 'openrouter'
+  | 'anthropic'
+  | 'custom'
+  | 'openai'
+  | 'gemini'
+  | 'ollama'
+  | 'openai-codex'
+  | 'google-gemini-cli'
+  | 'google-antigravity';
 export type CustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 export type ProviderProfileKey =
   | 'openrouter'
@@ -40,6 +49,9 @@ export type ProviderProfileKey =
   | 'openai'
   | 'gemini'
   | 'ollama'
+  | 'openai-codex'
+  | 'google-gemini-cli'
+  | 'google-antigravity'
   | 'custom:anthropic'
   | 'custom:openai'
   | 'custom:gemini';
@@ -152,6 +164,11 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
     baseUrl: 'https://api.openai.com/v1',
     model: 'gpt-5.4',
   },
+  'openai-codex': {
+    apiKey: '',
+    baseUrl: 'https://chatgpt.com/backend-api',
+    model: 'gpt-5.4',
+  },
   ollama: {
     apiKey: '',
     baseUrl: 'http://localhost:11434/v1',
@@ -161,6 +178,16 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
     apiKey: '',
     baseUrl: 'https://generativelanguage.googleapis.com',
     model: 'gemini-2.5-flash',
+  },
+  'google-gemini-cli': {
+    apiKey: '',
+    baseUrl: 'https://cloudcode-pa.googleapis.com',
+    model: 'gemini-3.1-pro-preview',
+  },
+  'google-antigravity': {
+    apiKey: '',
+    baseUrl: 'https://daily-cloudcode-pa.sandbox.googleapis.com',
+    model: 'gemini-3.1-pro-high',
   },
   'custom:anthropic': {
     apiKey: '',
@@ -263,13 +290,24 @@ const PROFILE_KEYS: ProviderProfileKey[] = [
   'openai',
   'gemini',
   'ollama',
+  'openai-codex',
+  'google-gemini-cli',
+  'google-antigravity',
   'custom:anthropic',
   'custom:openai',
   'custom:gemini',
 ];
 
 function isProviderType(value: unknown): value is ProviderType {
-  return value === 'openrouter' || value === 'anthropic' || value === 'custom' || value === 'openai' || value === 'gemini' || value === 'ollama';
+  return value === 'openrouter'
+    || value === 'anthropic'
+    || value === 'custom'
+    || value === 'openai'
+    || value === 'gemini'
+    || value === 'ollama'
+    || value === 'openai-codex'
+    || value === 'google-gemini-cli'
+    || value === 'google-antigravity';
 }
 
 function isCustomProtocol(value: unknown): value is CustomProtocolType {
@@ -306,8 +344,17 @@ function profileKeyToProvider(profileKey: ProviderProfileKey): { provider: Provi
   if (profileKey === 'openai') {
     return { provider: 'openai', customProtocol: 'openai' };
   }
+  if (profileKey === 'openai-codex') {
+    return { provider: 'openai-codex', customProtocol: 'openai' };
+  }
   if (profileKey === 'gemini') {
     return { provider: 'gemini', customProtocol: 'gemini' };
+  }
+  if (profileKey === 'google-gemini-cli') {
+    return { provider: 'google-gemini-cli', customProtocol: 'gemini' };
+  }
+  if (profileKey === 'google-antigravity') {
+    return { provider: 'google-antigravity', customProtocol: 'gemini' };
   }
   if (profileKey === 'ollama') {
     return { provider: 'ollama', customProtocol: 'openai' };
@@ -339,10 +386,10 @@ function normalizeCustomProtocol(value: CustomProtocolType | undefined, fallback
 }
 
 function defaultProtocolForProvider(provider: ProviderType): CustomProtocolType {
-  if (provider === 'openai' || provider === 'ollama') {
+  if (provider === 'openai' || provider === 'ollama' || provider === 'openai-codex') {
     return 'openai';
   }
-  if (provider === 'gemini') {
+  if (provider === 'gemini' || provider === 'google-gemini-cli' || provider === 'google-antigravity') {
     return 'gemini';
   }
   return 'anthropic';
@@ -352,23 +399,20 @@ export class ConfigStore {
   private store: Store<AppConfig>;
 
   private static getConfigKey(): Buffer {
-    const seed = `${os.hostname()}:${__dirname}:open-cowork-config-v1`;
-    return crypto.scryptSync(seed, 'open-cowork-config-salt', 32);
+    return deriveStableStoreKey('open-cowork-config-v2', 'open-cowork-config-salt');
   }
 
   constructor() {
     const storeOptions: any = {
       name: 'config',
+      cwd: getStableStoreCwd(),
       defaults: defaultConfig,
       // Encrypt the API key using a per-installation derived key
       encryptionKey: ConfigStore.getConfigKey().toString('hex'),
+      // Old installs can leave behind unreadable encrypted state after
+      // path/app-name changes. Reset to defaults instead of crashing on boot.
+      clearInvalidConfig: true,
     };
-
-    // Add projectName for non-Electron environments (e.g., MCP servers)
-    // This is required by the underlying 'conf' package
-    if (typeof process !== 'undefined' && !process.versions.electron) {
-      storeOptions.projectName = 'open-cowork';
-    }
 
     this.store = new Store<AppConfig>(storeOptions);
     this.ensureNormalized();
@@ -1163,6 +1207,9 @@ export class ConfigStore {
     if (projection.provider === 'ollama' && !(projection.model?.trim())) {
       return false;
     }
+    if (isOAuthProvider(projection.provider)) {
+      return hasSavedOAuthCredentials(projection.provider);
+    }
     const apiKey = projection.apiKey?.trim();
     if (apiKey) {
       return true;
@@ -1283,20 +1330,27 @@ export class ConfigStore {
 
     const useOpenAI =
       projectedConfig.provider === 'openai' ||
+      projectedConfig.provider === 'openai-codex' ||
       projectedConfig.provider === 'ollama' ||
       (projectedConfig.provider === 'custom' && projectedConfig.customProtocol === 'openai');
     const useGemini =
       projectedConfig.provider === 'gemini' ||
+      projectedConfig.provider === 'google-gemini-cli' ||
+      projectedConfig.provider === 'google-antigravity' ||
       (projectedConfig.provider === 'custom' && projectedConfig.customProtocol === 'gemini');
 
     if (useOpenAI) {
       const resolvedOpenAI = projectedConfig.provider === 'ollama'
         ? resolveOllamaCredentials(projectedConfig)
+        : projectedConfig.provider === 'openai-codex'
+          ? null
         : resolveOpenAICredentials(projectedConfig);
       if (resolvedOpenAI?.apiKey) {
         process.env.OPENAI_API_KEY = resolvedOpenAI.apiKey;
       }
-      const openAIBaseUrl = resolvedOpenAI?.baseUrl || projectedConfig.baseUrl;
+      const openAIBaseUrl = projectedConfig.provider === 'openai-codex'
+        ? (projectedConfig.baseUrl?.trim() || PROVIDER_PRESETS['openai-codex'].baseUrl)
+        : (resolvedOpenAI?.baseUrl || projectedConfig.baseUrl);
       if (openAIBaseUrl) {
         process.env.OPENAI_BASE_URL = openAIBaseUrl;
       }
@@ -1307,7 +1361,9 @@ export class ConfigStore {
         process.env.OPENAI_MODEL = projectedConfig.model;
       }
     } else if (useGemini) {
-      const trimmedApiKey = projectedConfig.apiKey?.trim();
+      const trimmedApiKey = isOAuthProvider(projectedConfig.provider)
+        ? ''
+        : projectedConfig.apiKey?.trim();
       if (trimmedApiKey) {
         process.env.GEMINI_API_KEY = trimmedApiKey;
       }

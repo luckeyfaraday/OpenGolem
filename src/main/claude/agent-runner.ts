@@ -44,8 +44,14 @@ import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
 import { configStore } from '../config/config-store';
 import { resolveMessageEndPayload, toUserFacingErrorText } from './agent-runner-message-end';
-import { applyPiModelRuntimeOverrides, buildSyntheticPiModel, resolvePiRegistryModel } from './pi-model-resolution';
+import {
+  applyPiModelRuntimeOverrides,
+  buildSyntheticPiModel,
+  resolvePiProtocol,
+  resolvePiRegistryModel,
+} from './pi-model-resolution';
 import { ThinkTagStreamParser } from './think-tag-parser';
+import { getPiProviderForConfig, resolveConfiguredApiKey } from '../oauth/oauth-provider-runtime';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -1122,7 +1128,7 @@ ${hints.join('\n')}
       // Resolve model via pi-ai
       const runtimeConfig = configStore.getAll();
       const modelString = this.getCurrentModelString(runtimeConfig.model);
-      const configProtocol = runtimeConfig.customProtocol || runtimeConfig.provider || 'anthropic';
+      const configProtocol = resolvePiProtocol(runtimeConfig.provider, runtimeConfig.customProtocol);
       let piModel = resolvePiRegistryModel(modelString, {
         configProvider: configProtocol,
         customBaseUrl: runtimeConfig.baseUrl?.trim() || undefined,
@@ -1133,7 +1139,10 @@ ${hints.join('\n')}
       if (!piModel) {
         // Synthetic fallback: construct a Model for unknown/custom models
         const parts = modelString.split('/');
-        const syntheticId = parts.length >= 2 ? parts.slice(1).join('/') : modelString;
+        // For OpenRouter models, preserve the full model ID (e.g., 'openrouter/hunter-alpha')
+        // because OpenRouter API requires the full prefixed model name
+        const isProviderOpenRouter = parts.length >= 2 && parts[0] === 'openrouter';
+        const syntheticId = isProviderOpenRouter ? modelString : (parts.length >= 2 ? parts.slice(1).join('/') : modelString);
         const syntheticProvider = parts.length >= 2 ? parts[0] : (configProtocol === 'custom' ? 'anthropic' : configProtocol);
         piModel = buildSyntheticPiModel(syntheticId, syntheticProvider, configProtocol, runtimeConfig.baseUrl?.trim() || undefined, undefined, undefined, runtimeConfig.contextWindow, runtimeConfig.maxTokens);
         // Apply the same runtime overrides (developer role compat, base URL, API downgrade)
@@ -1157,12 +1166,10 @@ ${hints.join('\n')}
       // Set up API keys via AuthStorage
       const authStorage = getSharedAuthStorage();
       const provider = runtimeConfig.provider || 'anthropic';
-      const apiKey = runtimeConfig.apiKey?.trim();
+      const apiKey = await resolveConfiguredApiKey(runtimeConfig);
       if (apiKey) {
         // Map our config provider to pi-ai provider name
-        const piProvider = provider === 'custom'
-          ? (runtimeConfig.customProtocol || 'anthropic')
-          : provider;
+        const piProvider = getPiProviderForConfig(runtimeConfig);
         authStorage.setRuntimeApiKey(piProvider, apiKey);
         // Also set the key for the model's native provider (e.g., when using
         // google/gemini via openrouter, pi-ai looks up "google" not "openrouter")
@@ -1452,7 +1459,7 @@ This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the ro
       // Cowork-specific rules appended to pi's native system prompt.
       // Skills and tool descriptions are handled by pi's DefaultResourceLoader.
       const coworkAppendPrompt = [
-        'You are an Open Cowork assistant. Be concise, accurate, and tool-capable.',
+        'You are an OpenGolem assistant. Be concise, accurate, and tool-capable.',
         `CRITICAL BEHAVIORAL RULES:
 1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text.
 2. When a request is actionable, proceed immediately with reasonable assumptions. If you need clarification, ask briefly in plain text.

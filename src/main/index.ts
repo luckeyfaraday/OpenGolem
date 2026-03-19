@@ -82,6 +82,19 @@ import {
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
+import {
+  clearOAuthCredentials,
+  getAllOAuthProviderStatuses,
+  getOAuthProviderStatus,
+  isOAuthProvider,
+  saveOAuthCredentials,
+  type OAuthProviderId,
+} from './oauth/oauth-store';
+import {
+  loginAntigravity,
+  loginGeminiCli,
+  loginOpenAICodex,
+} from '@mariozechner/pi-ai/oauth';
 
 // Current working directory (persisted between sessions)
 let currentWorkingDir: string | null = null;
@@ -284,7 +297,7 @@ function setupTray() {
   }
 
   tray = new Tray(iconPath);
-  tray.setToolTip('Open Cowork');
+  tray.setToolTip('OpenGolem');
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -732,7 +745,7 @@ app
     setDevLogsEnabled(enableDevLogs);
 
     // Log environment variables for debugging
-    log('=== Open Cowork Starting ===');
+    log('=== OpenGolem Starting ===');
     log('Config file:', configStore.getPath());
     log('Is configured:', configStore.isConfigured());
     log('[Runtime] Using pi-coding-agent SDK for all providers');
@@ -922,7 +935,7 @@ app
   .catch((error) => {
     logError('[App] Startup failed:', error);
     const message = error instanceof Error ? error.message : 'Unknown startup error';
-    dialog.showErrorBox('Open Cowork 启动失败', `${message}\n\n请查看日志获取更多信息。`);
+    dialog.showErrorBox('OpenGolem 启动失败', `${message}\n\n请查看日志获取更多信息。`);
     app.quit();
   });
 
@@ -1422,6 +1435,127 @@ ipcMain.handle('config.discover-local', async (_event, payload?: { baseUrl?: str
     logError('[Config] Error discovering local services:', error);
     return [];
   }
+});
+
+async function runOAuthLogin(provider: OAuthProviderId) {
+  const loginCommon = {
+    onAuth: ({ url }: { url: string; instructions?: string }) => {
+      void shell.openExternal(url);
+    },
+    onProgress: (message: string) => log(`[OAuth:${provider}] ${message}`),
+  };
+
+  switch (provider) {
+    case 'openai-codex':
+      return loginOpenAICodex({
+        ...loginCommon,
+        onPrompt: async () => {
+          throw new Error(
+            'Manual authorization paste is not supported in this build. Make sure localhost callback port 1455 is available and try again.'
+          );
+        },
+      });
+    case 'google-gemini-cli':
+      return loginGeminiCli(
+        loginCommon.onAuth,
+        loginCommon.onProgress,
+      );
+    case 'google-antigravity':
+      return loginAntigravity(
+        loginCommon.onAuth,
+        loginCommon.onProgress,
+      );
+    default:
+      throw new Error(`Unsupported OAuth provider: ${provider}`);
+  }
+}
+
+function getOAuthProviderLabel(provider: OAuthProviderId): string {
+  switch (provider) {
+    case 'openai-codex':
+      return 'ChatGPT Codex';
+    case 'google-gemini-cli':
+      return 'Google Gemini CLI';
+    case 'google-antigravity':
+      return 'Google Antigravity';
+    default:
+      return provider;
+  }
+}
+
+function formatOAuthLoginError(provider: OAuthProviderId, error: unknown): Error {
+  const rawMessage = error instanceof Error ? error.message : String(error);
+
+  if (
+    (provider === 'google-gemini-cli' || provider === 'google-antigravity') &&
+    /TOS_VIOLATION|Terms of Service|This service has been disabled in this account/i.test(rawMessage)
+  ) {
+    const appealUrl = rawMessage.match(/"appeal_url"\s*:\s*"([^"]+)"/)?.[1];
+    const providerLabel = getOAuthProviderLabel(provider);
+    const detail = appealUrl
+      ? `Google has disabled ${providerLabel} for this account due to a Terms of Service violation. This is an account-level block from Google, not a local OAuth or app configuration error. Submit an appeal here: ${appealUrl}`
+      : `Google has disabled ${providerLabel} for this account due to a Terms of Service violation. This is an account-level block from Google, not a local OAuth or app configuration error.`;
+    return new Error(detail);
+  }
+
+  if (
+    (provider === 'google-gemini-cli' || provider === 'google-antigravity') &&
+    /403 Forbidden|PERMISSION_DENIED/i.test(rawMessage)
+  ) {
+    return new Error(
+      `OAuth login failed for ${getOAuthProviderLabel(provider)} with a Google account permission error. This is likely an upstream account or service access issue, not a local app configuration problem.`
+    );
+  }
+
+  return new Error(`OAuth login failed for ${getOAuthProviderLabel(provider)}: ${rawMessage}`);
+}
+
+async function syncOAuthMutation(): Promise<AppConfig> {
+  configStore.set('isConfigured', configStore.hasAnyUsableCredentials());
+  configStore.applyToEnv();
+  const updatedConfig = configStore.getAll();
+
+  if (sessionManager) {
+    sessionManager.reloadConfig();
+  }
+
+  sendToRenderer({
+    type: 'config.status',
+    payload: {
+      isConfigured: configStore.isConfigured(),
+      config: updatedConfig,
+    },
+  });
+
+  return updatedConfig;
+}
+
+ipcMain.handle('config.oauth.status', async () => {
+  return getAllOAuthProviderStatuses();
+});
+
+ipcMain.handle('config.oauth.login', async (_event, provider: OAuthProviderId) => {
+  if (!isOAuthProvider(provider)) {
+    throw new Error(`Unsupported OAuth provider: ${provider}`);
+  }
+  try {
+    const credentials = await runOAuthLogin(provider);
+    saveOAuthCredentials(provider, credentials);
+    await syncOAuthMutation();
+    return getOAuthProviderStatus(provider);
+  } catch (error) {
+    logError(`[OAuth:${provider}] Login failed:`, error);
+    throw formatOAuthLoginError(provider, error);
+  }
+});
+
+ipcMain.handle('config.oauth.logout', async (_event, provider: OAuthProviderId) => {
+  if (!isOAuthProvider(provider)) {
+    throw new Error(`Unsupported OAuth provider: ${provider}`);
+  }
+  clearOAuthCredentials(provider);
+  await syncOAuthMutation();
+  return getOAuthProviderStatus(provider);
 });
 
 
@@ -2027,7 +2161,7 @@ ipcMain.handle('logs.export', async () => {
     // Show save dialog
     const result = await dialog.showSaveDialog(mainWindow!, {
       title: 'Export Logs',
-      defaultPath: `opencowork-logs-${new Date().toISOString().split('T')[0]}.zip`,
+      defaultPath: `opengolem-logs-${new Date().toISOString().split('T')[0]}.zip`,
       filters: [
         { name: 'ZIP Archive', extensions: ['zip'] },
         { name: 'All Files', extensions: ['*'] },
@@ -2104,7 +2238,7 @@ ipcMain.handle('logs.export', async () => {
       });
       archive.append(
         [
-          'Open Cowork diagnostic bundle',
+          'OpenGolem diagnostic bundle',
           `Exported at: ${diagnosticsSummary.exportedAt}`,
           '',
           'Included files:',
