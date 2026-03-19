@@ -49,7 +49,6 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
       { id: 'google/gemini-3.1-pro-preview', name: 'google/gemini-3.1-pro-preview' },
       { id: 'google/gemini-3-flash-preview', name: 'google/gemini-3-flash-preview' },
       { id: 'google/gemini-2.5-flash', name: 'google/gemini-2.5-flash' },
-      { id: 'openrouter/hunter-alpha', name: 'openrouter/hunter-alpha' },
     ],
     keyPlaceholder: 'sk-or-v1-...',
     keyHint: '从 openrouter.ai/keys 获取',
@@ -179,7 +178,6 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
       'google/gemini-3.1-pro-preview',
       'google/gemini-3-flash-preview',
       'google/gemini-2.5-flash',
-      'openrouter/hunter-alpha',
     ],
   },
   anthropic: {
