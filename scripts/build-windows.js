@@ -3,6 +3,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
+const { rebuildNativeModules } = require('./rebuild-native-modules');
+const {
+  parseWindowsTargetArch,
+  validateWindowsBinaryForArch,
+} = require('./build-windows-utils');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const CACHE_ROOT = path.resolve(
@@ -19,6 +24,18 @@ const DIRS = {
   npmCache: path.join(CACHE_ROOT, 'npm-cache'),
 };
 const LOCAL_ELECTRON_DIST = path.join(PROJECT_ROOT, 'node_modules', 'electron', 'dist');
+const RELEASE_DIR = path.join(PROJECT_ROOT, 'release');
+const PACKAGED_BETTER_SQLITE3 = path.join(
+  RELEASE_DIR,
+  'win-unpacked',
+  'resources',
+  'app.asar.unpacked',
+  'node_modules',
+  'better-sqlite3',
+  'build',
+  'Release',
+  'better_sqlite3.node'
+);
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -79,15 +96,62 @@ function cleanInvalidElectronCache(electronCacheDir) {
   }
 }
 
+function cleanWindowsReleaseArtifacts() {
+  if (!fs.existsSync(RELEASE_DIR)) {
+    return;
+  }
+
+  const entries = fs.readdirSync(RELEASE_DIR);
+  for (const entry of entries) {
+    const fullPath = path.join(RELEASE_DIR, entry);
+    if (
+      /^latest\.yml$/i.test(entry)
+      || /^builder-(debug|effective-config)\./i.test(entry)
+      || /win-(x64|arm64|ia32)\.(exe|exe\.blockmap)$/i.test(entry)
+      || /\.nsis\.7z$/i.test(entry)
+      || /^win-unpacked$/i.test(entry)
+    ) {
+      console.log('[build:win] Removing stale release artifact:', fullPath);
+      fs.rmSync(fullPath, { recursive: true, force: true });
+    }
+  }
+}
+
+function validatePackagedNativeModules(targetArch) {
+  if (!fs.existsSync(PACKAGED_BETTER_SQLITE3)) {
+    console.warn('[build:win] Packaged better-sqlite3 binary not found for validation:', PACKAGED_BETTER_SQLITE3);
+    return;
+  }
+
+  const validation = validateWindowsBinaryForArch(PACKAGED_BETTER_SQLITE3, targetArch);
+  if (!validation.ok) {
+    if (validation.reason === 'machine-mismatch') {
+      console.error(
+        `[build:win] Invalid Windows package: better_sqlite3.node is ${validation.actualArch}, expected ${validation.expectedArch}.`
+      );
+    } else {
+      console.error('[build:win] Invalid Windows package: better_sqlite3.node is not a valid Windows PE binary.');
+    }
+    console.error('[build:win] Packaged file:', PACKAGED_BETTER_SQLITE3);
+    console.error('[build:win] This usually means the packaged native module was built for the wrong platform or CPU architecture.');
+    console.error('[build:win] Build the installer on a Windows host with `npm run build:win` so native modules are rebuilt for the packaged Electron target.');
+    process.exit(1);
+  }
+
+  console.log(`[build:win] Verified packaged better-sqlite3 binary matches win32-${targetArch}.`);
+}
+
 function main() {
   if (process.platform !== 'win32') {
-    console.warn('[build:win] This helper is intended for Windows hosts.');
+    console.error('[build:win] Windows installers must be built on a Windows host.');
+    process.exit(1);
   }
 
   Object.values(DIRS).forEach(ensureDir);
 
   const forwardedArgs = process.argv.slice(2);
   const builderArgs = forwardedArgs.length > 0 ? [...forwardedArgs] : ['--win', 'nsis'];
+  const targetArch = parseWindowsTargetArch(builderArgs);
   const env = {
     ...process.env,
     APPDATA: DIRS.appDataRoaming,
@@ -98,13 +162,18 @@ function main() {
     ELECTRON_BUILDER_CACHE: DIRS.electronBuilderCache,
     NPM_CONFIG_CACHE: DIRS.npmCache,
     npm_config_cache: DIRS.npmCache,
+    npm_config_arch: targetArch,
+    npm_config_target_arch: targetArch,
+    npm_config_platform: 'win32',
+    npm_config_target_platform: 'win32',
   };
 
   delete env.ELECTRON_RUN_AS_NODE;
   cleanInvalidElectronCache(DIRS.electronCache);
+  cleanWindowsReleaseArtifacts();
 
   const hasElectronDistOverride = builderArgs.some((arg) => arg.includes('electronDist'));
-  if (!hasElectronDistOverride && fs.existsSync(LOCAL_ELECTRON_DIST)) {
+  if (process.platform === 'win32' && !hasElectronDistOverride && fs.existsSync(LOCAL_ELECTRON_DIST)) {
     builderArgs.push(`--config.electronDist=${LOCAL_ELECTRON_DIST}`);
   }
 
@@ -115,10 +184,13 @@ function main() {
   console.log('[build:win] ELECTRON_CACHE:', DIRS.electronCache);
   console.log('[build:win] ELECTRON_BUILDER_CACHE:', DIRS.electronBuilderCache);
   console.log('[build:win] NPM_CONFIG_CACHE:', DIRS.npmCache);
+  console.log('[build:win] Target arch:', targetArch);
   if (builderArgs.some((arg) => arg.includes('electronDist'))) {
     console.log('[build:win] electronDist:', LOCAL_ELECTRON_DIST);
   }
   console.log('[build:win] Running build with args:', builderArgs.join(' '));
+
+  rebuildNativeModules({ arch: targetArch, env });
 
   const child = spawn(resolveNpmCommand(), ['run', 'build', '--', ...builderArgs], {
     cwd: PROJECT_ROOT,
@@ -132,7 +204,14 @@ function main() {
       console.error(`[build:win] Build terminated by signal: ${signal}`);
       process.exit(1);
     }
-    process.exit(code ?? 1);
+
+    const exitCode = code ?? 1;
+    if (exitCode !== 0) {
+      process.exit(exitCode);
+    }
+
+    validatePackagedNativeModules(targetArch);
+    process.exit(0);
   });
 
   child.on('error', (error) => {

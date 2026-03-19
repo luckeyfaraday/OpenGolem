@@ -1,12 +1,12 @@
 {
-  "name": "open-cowork",
+  "name": "open-golem",
   "version": "3.3.0-beta.3",
   "description": "Desktop Agent application with sandboxed environment for AI Agent interaction",
   "main": "dist-electron/main/index.js",
   "scripts": {
     "dev": "npm run download:node && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && vite",
     "dev:with-python": "npm run download:node && npm run prepare:python && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && vite",
-    "build": "npm run download:node && npm run prepare:gui-tools && npm run prepare:python:all && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && tsc && vite build && electron-builder",
+    "build": "node scripts/patch-electron-builder.js && npm run download:node && npm run prepare:gui-tools && npm run prepare:python:all && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && tsc && vite build && node scripts/run-electron-builder.js",
     "build:win": "node scripts/build-windows.js",
     "build:wsl-agent": "tsc -p src/main/sandbox/wsl-agent/tsconfig.json",
     "build:lima-agent": "tsc -p src/main/sandbox/lima-agent/tsconfig.json",
@@ -23,13 +23,13 @@
     "test": "vitest",
     "bench": "vitest bench",
     "bench:api": "node scripts/bench-api.mjs",
-    "rebuild": "node -e \"const {execSync}=require('node:child_process'); const v=require('electron/package.json').version; execSync('npm rebuild better-sqlite3 --runtime=electron --target='+v+' --disturl=https://electronjs.org/headers',{stdio:'inherit'})\""
+    "rebuild": "node scripts/rebuild-native-modules.js"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^2.1.7",
     "@anthropic-ai/sdk": "^0.39.0",
     "@larksuiteoapi/node-sdk": "^1.58.0",
-    "@mariozechner/pi-ai": "^0.56.3",
+    "@mariozechner/pi-ai": "^0.58.4",
     "@mariozechner/pi-coding-agent": "^0.56.3",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "archiver": "^7.0.1",
@@ -75,6 +75,7 @@
     "autoprefixer": "^10.4.20",
     "electron": "^31.7.7",
     "electron-builder": "^26.4.0",
+    "electron-rebuild": "^3.2.9",
     "esbuild": "^0.27.2",
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
@@ -90,7 +91,7 @@
   "overrides": {
     "tar": "7.4.3"
   },
-  "author": "Open Cowork Team",
+  "author": "OpenGolem Team",
   "license": "MIT",
   "optionalDependencies": {
     "bufferutil": "^4.1.0",

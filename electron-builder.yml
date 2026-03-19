@@ -1,6 +1,6 @@
-appId: com.opencowork.app
-productName: Open Cowork
-copyright: Copyright © 2026 Open Cowork Team
+appId: com.opengolem.app
+productName: OpenGolem
+copyright: Copyright © 2026 OpenGolem Team
 
 directories:
   output: release
@@ -122,7 +122,7 @@ dmg:
   contents:
     - x: 150
       y: 220
-      name: "Open Cowork.app"
+      name: "OpenGolem.app"
     - x: 450
       y: 220
       type: link
@@ -134,5 +134,5 @@ extraMetadata:
 
 publish:
   provider: github
-  owner: OpenCoworkAI
-  repo: open-cowork
+  owner: luckeyfaraday
+  repo: OpenGolem
