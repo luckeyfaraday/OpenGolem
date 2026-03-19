@@ -1,6 +1,6 @@
 {
   "name": "open-golem",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "Desktop Agent application with sandboxed environment for AI Agent interaction",
   "main": "dist-electron/main/index.js",
   "scripts": {
