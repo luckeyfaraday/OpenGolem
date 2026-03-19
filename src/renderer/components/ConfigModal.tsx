@@ -204,24 +204,40 @@ export function ConfigModal({
           />
 
           {/* Provider Selection */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
               <Server className="w-4 h-4" />
               {t('api.provider')}
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {([
-                'openrouter',
-                'anthropic',
-                'openai',
-                'openai-codex',
-                'gemini',
-                'google-gemini-cli',
-                'google-antigravity',
-                'ollama',
-                'custom',
-              ] as const).map(
-                (p) => (
+            <p className="text-xs text-text-muted">{t('api.providerDescription')}</p>
+
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+                {t('api.oauthProviders')}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {(['openai-codex', 'google-gemini-cli', 'google-antigravity'] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => changeProvider(p)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      provider === p
+                        ? 'bg-accent text-white'
+                        : 'bg-surface-hover text-text-secondary hover:bg-surface-active'
+                    }`}
+                  >
+                    {presets?.[p]?.name || PROVIDER_LABELS[p] || p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+                {t('api.apiProviders')}
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {(['openrouter', 'anthropic', 'openai', 'gemini', 'ollama', 'custom'] as const).map((p) => (
                   <button
                     key={p}
                     onClick={() => changeProvider(p)}
@@ -232,11 +248,11 @@ export function ConfigModal({
                     }`}
                   >
                     {presets?.[p]?.name ||
-                      (p === 'custom' ? t('api.custom') : PROVIDER_LABELS[p]) ||
+                      (p === 'custom' ? t('api.moreModels') : PROVIDER_LABELS[p]) ||
                       p}
                   </button>
-                )
-              )}
+                ))}
+              </div>
             </div>
           </div>
 

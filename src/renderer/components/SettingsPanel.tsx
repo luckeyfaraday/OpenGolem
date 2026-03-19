@@ -561,33 +561,51 @@ function APISettingsTab() {
           {t('api.provider')}
         </label>
         <p className="text-xs leading-5 text-text-muted">{t('api.providerDescription')}</p>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
-          {([
-            'openrouter',
-            'anthropic',
-            'openai',
-            'openai-codex',
-            'gemini',
-            'google-gemini-cli',
-            'google-antigravity',
-            'ollama',
-            'custom',
-          ] as const).map(
-            (p) => (
-              <button
-                key={p}
-                onClick={() => changeProvider(p)}
-                disabled={isLoadingConfig}
-                className={`px-3 py-2 rounded-lg text-sm transition-colors border ${
-                  provider === p
-                    ? 'border-accent bg-accent/10 text-accent font-medium'
-                    : 'border-border-muted text-text-secondary hover:border-border hover:text-text-primary disabled:opacity-50'
-                }`}
-              >
-                {p === 'custom' ? t('api.moreModels') : presets?.[p]?.name || p}
-              </button>
-            )
-          )}
+
+        <div className="space-y-3">
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+              {t('api.oauthProviders')}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {(['openai-codex', 'google-gemini-cli', 'google-antigravity'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => changeProvider(p)}
+                  disabled={isLoadingConfig}
+                  className={`px-3 py-2 rounded-lg text-sm transition-colors border ${
+                    provider === p
+                      ? 'border-accent bg-accent/10 text-accent font-medium'
+                      : 'border-border-muted text-text-secondary hover:border-border hover:text-text-primary disabled:opacity-50'
+                  }`}
+                >
+                  {presets?.[p]?.name || p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+              {t('api.apiProviders')}
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+              {(['openrouter', 'anthropic', 'openai', 'gemini', 'ollama', 'custom'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => changeProvider(p)}
+                  disabled={isLoadingConfig}
+                  className={`px-3 py-2 rounded-lg text-sm transition-colors border ${
+                    provider === p
+                      ? 'border-accent bg-accent/10 text-accent font-medium'
+                      : 'border-border-muted text-text-secondary hover:border-border hover:text-text-primary disabled:opacity-50'
+                  }`}
+                >
+                  {p === 'custom' ? t('api.moreModels') : presets?.[p]?.name || p}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

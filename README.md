@@ -2,18 +2,18 @@
   <img src="resources/logo.png" alt="OpenGolem Logo" width="280" />
 </p>
 
-<h1 align="center">🚀 OpenGolem: Your Personal AI Agent Desktop App</h1>
+<h1 align="center">OpenGolem — Open-Source Claude Cowork with OAuth</h1>
 
 <p align="center">
-  • Open Source Claude Cowork • One-Click Install 
+  Open-source Claude Cowork for Windows and macOS — a Claude Cowork alternative with OAuth support for Gemini, Codex, and Antigravity.
 </p>
 
 <p align="center">
   <a href="#features">Features</a> •
-  <a href="#demo">Demo</a> •
-  <a href="#installation">Downloads</a> •
+  <a href="#installation">Download</a> •
   <a href="#quick-start">Quick Start</a> •
-  <a href="#skills">Skills Library</a>
+  <a href="#architecture">Architecture</a> •
+  <a href="#contributing">Contributing</a>
 </p>
 
 <p align="center">
@@ -24,70 +24,91 @@
 
 ---
 
-## 📖 Introduction
+## Introduction
 
-**OpenGolem** is an open-source AI agent desktop app with one-click installers for **Windows** and **macOS**.
+**OpenGolem** is an **open-source version of Claude Cowork** and a **Claude Cowork alternative** for people who want a desktop AI cowork app with more flexible authentication.
 
-It provides a sandboxed workspace where AI can manage files, generate professional outputs (PPTX, DOCX, XLSX, etc.) through our built-in **Skills** system, and **connect to desktop apps via MCP** (browser, Notion, etc.) for better collaboration.
+Right now, it is also a **fork/rebrand of Open-Cowork** — another open-source Claude Cowork implementation — with a new identity and a different product direction.
+
+The main reason to use OpenGolem is simple:
+
+- **OAuth support for Gemini, Codex, and Antigravity**
+- **Use your existing Gemini, Codex, and Antigravity accounts**
+- **Avoid the need for costly API calls when those plans already cover your usage**
+- **Use an AI app without API keys for supported OAuth providers**
+- fall back to standard API providers when you want them
+
+OpenGolem gives you a desktop AI cowork app with a local workspace, tool execution, skills, MCP support, GUI operation, and remote-control capabilities — packaged for **Windows** and **macOS**.
+
+If you are searching for terms like **cowork OAuth**, **Claude OAuth**, **open-source OAuth app**, **desktop AI app with OAuth**, or **AI app without API key**, OpenGolem is designed to sit directly in that category.
 
 > [!WARNING]
-> **Disclaimer**: OpenGolem is an AI collaboration tool. Please exercise caution with its operations, especially when authorizing file modifications or deletions. We support VM-based sandbox isolation, but some operations may still carry risks.
+> OpenGolem can read files, modify files, and operate tools inside your workspace. Treat it like a powerful local operator, not a toy. Review what it is allowed to touch.
 
 ---
 
 <a id="features"></a>
-## ✨ Key Features
+## Features
 
-|               | MCP & Skills | Remote Control | GUI Operation |
-| ------------- | ------------ | -------------- | ------------- |
-| Claude Cowork | ✓            | ✗              | ✗             |
-| OpenClaw      | ✓            | ✓              | ✗             |
-| OpenGolem     | ✓            | ✓              | ✓             |
+### Core positioning
 
-- **One-Click Install, Ready to Use**: Pre-built installers for Windows and macOS, no environment setup needed—just download and start using.
-- **Flexible Model Support**: Supports **Claude**, **OpenAI-compatible APIs**, and Chinese models like **GLM**, **MiniMax**, **Kimi**. Use your OpenRouter, Anthropic, or other API keys with flexible configuration. More models coming soon!
-- **Remote Control**: Connect to collaboration platforms like **Feishu (Lark)** and other remote services to automate workflows and cross-platform operations.
-- **GUI Operation**: Control and interact with various desktop GUI applications on your computer. **Recommended model: Gemini-3-Pro** for optimal GUI understanding and control.
-- **Smart File Management**: Read, write, and organize files within your workspace.
-- **Skills System**: Built-in workflows for PPTX, DOCX, PDF, XLSX generation and processing. **Supports custom skill creation and deletion.**
-- **MCP External Service Support**: Integrate browser, Notion, custom apps and more through **MCP Connectors** to extend AI capabilities.
-- **Multimodal Input**: Drag & drop files and images directly into the chat input for seamless multimodal interaction.
-- **Real-time Trace**: Watch AI reasoning and tool execution in the Trace Panel.
-- **Secure Workspace**: All operations confined to your chosen workspace folder.
-- **VM-Level Isolation**: WSL2 (Windows) and Lima (macOS) VM isolation—all commands execute in an isolated VM to protect your host system.
-- **UI Enhancements**: Beautiful and flexible UI design, system language switching, comprehensive MCP/Skills/Tools call display.
+- **Open-source Claude Cowork experience**
+- **Claude Cowork alternative** for desktop users
+- **Desktop AI agent app** with one-click installers for **Windows** and **macOS**
+- **OAuth-first workflow** for supported providers
+- **API-key workflow** for other providers
 
-<a id="demo"></a>
+### Authentication and model access
 
+- **OAuth support** for:
+  - **Gemini**
+  - **Codex**
+  - **Antigravity**
+- **Cowork OAuth / Claude OAuth style login flow** for supported providers
+- **Use your existing accounts instead of API keys** where OAuth is supported
+- **API provider support** for OpenAI-compatible and Anthropic-style setups
+- Flexible model/provider configuration inside the app
 
+### Local AI cowork workflow
 
-## 🎬 Demo
+- **Workspace-scoped file management**
+- **Chat-based task execution** inside your selected working folder
+- **Real-time trace panel** for reasoning and tool execution visibility
+- **Multimodal input** with drag-and-drop files and images
 
-See OpenGolem in action:
+### Skills and tools
 
-### 1. Folder Organization & Cleanup 📂
-https://github.com/user-attachments/assets/dbeb0337-2d19-4b5d-a438-5220f2a87ca7
+- Built-in **Skills** support for:
+  - PPTX
+  - DOCX
+  - PDF
+  - XLSX
+- **Custom skill creation and deletion**
+- **MCP connector support** for external tools and services
 
-### 2. Generate PPT from Files 📊
-https://github.com/user-attachments/assets/30299ded-0260-468f-b11d-d282bb9c97f2
+### Desktop control and remote operation
 
-### 3. Generate XLSX Spreadsheets 📉
-https://github.com/user-attachments/assets/f57b9106-4b2c-4747-aecd-a07f78af5dfc
+- **GUI operation** for desktop apps
+- **Remote control** support for connected platforms and services
+- **Feishu / Lark-style collaboration flows** supported in the current codebase
 
-### 4. GUI Operation🖥
-https://github.com/user-attachments/assets/75542c76-210f-414d-8182-1da988c148f2
+### Safety and isolation
 
-### 5. Remote control with Feishu(Lark) 🤖
-https://github.com/user-attachments/assets/05a703de-c0f5-407b-9a43-18b6a172fd74
+- **Workspace path restrictions**
+- **WSL2 isolation on Windows**
+- **Lima isolation on macOS**
+- Native fallback when VM isolation is unavailable
 
 ---
 
 <a id="installation"></a>
-## 📦 Installation
+## Download
 
-### Option 1: Download Installer (Recommended)
+### Option 1: Download Installer
 
-Get the latest version from this repository's Releases page.
+Get the latest version from this repository’s **Releases** page.
+
+If you want an **open-source Claude Cowork app**, a **desktop AI app with OAuth**, or a **Claude Cowork alternative** you can download and run locally, start here.
 
 | Platform | File Type |
 |----------|-----------|
@@ -95,8 +116,6 @@ Get the latest version from this repository's Releases page.
 | **macOS** (Apple Silicon) | `.dmg` |
 
 ### Option 2: Build from Source
-
-For developers who want to contribute or modify the codebase:
 
 ```bash
 git clone https://github.com/luckeyfaraday/OpenGolem.git open-golem
@@ -106,186 +125,158 @@ npm run rebuild
 npm run dev
 ```
 
-To build the installer locally:
+To build installers locally:
 
-- Windows: `npm run build:win`
-- macOS/Linux: `npm run build`
+- **Windows:** `npm run build:win`
+- **macOS/Linux:** `npm run build`
 
-Windows release automation:
+### Windows release automation
 
-- Pushing a Git tag now triggers [`.github/workflows/windows-release.yml`](.github/workflows/windows-release.yml), which builds the Windows installer on `windows-latest`.
-- The workflow uploads `release/*.exe`, update metadata, and related installer assets to the matching GitHub release.
-- Manual reruns are available through `workflow_dispatch`.
+Pushing a Git tag triggers [`.github/workflows/windows-release.yml`](.github/workflows/windows-release.yml), which builds the Windows installer on `windows-latest` and uploads release assets to the matching GitHub release.
 
-### Security Configuration: 🔒 Sandbox Support
+---
 
-OpenGolem provides **multi-level sandbox protection** to keep your system safe:
+## Sandbox and security
+
+OpenGolem supports multiple isolation levels:
 
 | Level | Platform | Technology | Description |
 |-------|----------|------------|-------------|
-| **Basic** | All | Path Guard | File operations restricted to workspace folder |
-| **Enhanced** | Windows | WSL2 | Commands execute in isolated Linux VM |
-| **Enhanced** | macOS | Lima | Commands execute in isolated Linux VM |
+| **Basic** | All | Path Guard | File operations restricted to the selected workspace |
+| **Enhanced** | Windows | WSL2 | Commands execute in an isolated Linux VM |
+| **Enhanced** | macOS | Lima | Commands execute in an isolated Linux VM |
 
-- **Windows (WSL2)**: When WSL2 is detected, all Bash commands are automatically routed to a Linux VM. The workspace is synced bidirectionally.
-- **macOS (Lima)**: When [Lima](https://lima-vm.io/) is installed (`brew install lima`), commands run in an Ubuntu VM with `/Users` mounted.
-- **Fallback**: If no VM is available, commands run natively with path-based restrictions.
+### Windows
 
-**Setup (Optional, Recommended)**
+When **WSL2** is available, Bash commands are routed through an isolated Linux VM and the workspace is synced bidirectionally.
 
-- **Windows**: WSL2 is auto-detected if installed. [Install WSL2](https://docs.microsoft.com/en-us/windows/wsl/install)
+Install WSL if needed:
+- <https://docs.microsoft.com/en-us/windows/wsl/install>
 
-- **macOS**:
-Lima is auto-detected if installed. Install command:
+### macOS
+
+When **Lima** is installed, commands run inside an Ubuntu VM with `/Users` mounted.
+
+Install Lima:
+
 ```bash
 brew install lima
-# OpenGolem will automatically create and manage a 'claude-sandbox' VM
 ```
 
 ---
 
 <a id="quick-start"></a>
-## 🚀 Quick Start Guide
+## Quick Start
 
-### 1. Get an API Key
-You need an API key to power the agent. We support **OpenRouter**, **Anthropic**, and various cost-effective **Chinese Models**.
+### 1. Choose how you want to authenticate
 
-| Provider | Get Key / Coding Plan | Base URL (Required) | Recommended Model |
-|----------|-----------------------|---------------------|-------------------|
-| **OpenRouter** | [OpenRouter](https://openrouter.ai/) | `https://openrouter.ai/api` | `claude-4-5-sonnet` |
-| **Anthropic** | [Anthropic Console](https://console.anthropic.com/) | (Default) | `claude-4-5-sonnet` |
-| **Zhipu AI (GLM)** | [GLM Coding Plan](https://bigmodel.cn/glm-coding) (⚡️Chinese Deal) | `https://open.bigmodel.cn/api/anthropic` | `glm-4.7`, `glm-4.6` |
-| **MiniMax** | [MiniMax Coding Plan](https://platform.minimaxi.com/subscribe/coding-plan) | `https://api.minimaxi.com/anthropic` | `minimax-m2` |
-| **Kimi** | [Kimi Coding Plan](https://www.kimi.com/membership/pricing) | `https://api.kimi.com/coding/` | `kimi-k2` |
+#### OAuth providers
+Use your existing accounts for:
+- **Gemini**
+- **Codex**
+- **Antigravity**
 
-### 2. Configure
-1. Open the app and click the ⚙️ **Settings** icon in the bottom left.
-2. Paste your **API Key**.
-3. **Crucial**: Set the **Base URL** according to the table above (especially for Zhipu/MiniMax, etc.).
-4. Enter the **Model** name you want to use.
+#### API providers
+For other providers, configure them with API credentials.
 
-### 3. Start Coworking
-1. **Select a Workspace**: Choose a folder where Claude is allowed to work.
-2. **Enter a Prompt**:
-   > "Read the financial_report.csv in this folder and create a PowerPoint summary with 5 slides."
+| Provider | Base URL | Example Models |
+|----------|----------|----------------|
+| **OpenRouter** | `https://openrouter.ai/api` | OpenRouter-supported models |
+| **Anthropic** | default | Claude models |
+| **Zhipu AI (GLM)** | `https://open.bigmodel.cn/api/anthropic` | `glm-4.7`, `glm-4.6` |
+| **MiniMax** | `https://api.minimaxi.com/anthropic` | `minimax-m2` |
+| **Kimi** | `https://api.kimi.com/coding/` | `kimi-k2` |
 
-### 📝 Important Notes
+### 2. Configure the app
 
-1.  **macOS Installation**: If you see a security warning when opening the app, go to **System Settings > Privacy & Security** and click **Open Anyway**. If it is still blocked, run:
+1. Open **Settings**
+2. Choose your auth method:
+   - OAuth for Gemini / Codex / Antigravity
+   - API key + base URL for other providers
+3. Select the model/provider you want to use
+4. Choose your workspace folder
+
+### 3. Start using OpenGolem
+
+Example prompt:
+
+> Read the files in this workspace, summarize the key documents, and generate a PowerPoint briefing.
+
+### Notes
+
+#### macOS gatekeeper
+If macOS blocks the app, go to **System Settings → Privacy & Security** and choose **Open Anyway**.
+
+If needed:
 
 ```bash
 sudo xattr -rd com.apple.quarantine "/Applications/OpenGolem.app"
 ```
-2.  **Network Access**: For tools like `WebSearch`, you may need to enable "Virtual Network Interface" (TUN Mode) in your proxy settings to ensure connectivity.
-3. **Notion Connector**: Besides setting the integration token, you also need to add connections in a root page. See https://www.notion.com/help/add-and-manage-connections-with-the-api for more details.
+
+#### Network access
+For networked tools such as web search or remote connectors, your proxy/network setup may need TUN / virtual interface support.
+
+#### Notion connector
+If you use Notion integrations, you may need to configure both the token and the page-level connection permissions.
+
 ---
 
 <a id="skills"></a>
-## 🧰 Skills Library
+## Built-in skills
 
-OpenGolem ships with built-in skills under `.claude/skills/`, and supports user-added or custom skills, including:
-- `pptx` for PowerPoint generation
-- `docx` for Word document processing
-- `pdf` for PDF handling and forms
-- `xlsx` for Excel spreadsheet support
-- `skill-creator` for creating custom skills
+OpenGolem ships with built-in skills under `.claude/skills/`, including:
+
+- `pptx`
+- `docx`
+- `pdf`
+- `xlsx`
+- `skill-creator`
 
 ---
 
-## 🏗️ Architecture
+<a id="architecture"></a>
+## Architecture
 
-```
+```text
 open-golem/
 ├── src/
-│   ├── main/                    # Electron Main Process (Node.js)
-│   │   ├── index.ts             # Main entry point
-│   │   ├── claude/              # Agent SDK & Runner
-│   │   │   └── agent-runner.ts  # AI agent execution logic
-│   │   ├── config/              # Configuration management
-│   │   │   └── config-store.ts  # Persistent settings storage
-│   │   ├── db/                  # Database layer
-│   │   │   └── database.ts      # SQLite/data persistence
-│   │   ├── ipc/                 # IPC handlers
-│   │   ├── memory/              # Memory management
-│   │   │   └── memory-manager.ts
-│   │   ├── sandbox/             # Security & Path Resolution
-│   │   │   └── path-resolver.ts # Sandboxed file access
-│   │   ├── session/             # Session management
-│   │   │   └── session-manager.ts
-│   │   ├── skills/              # Skill Loader & Manager
-│   │   │   └── skills-manager.ts
-│   │   └── tools/               # Tool execution
-│   │       └── tool-executor.ts # Tool call handling
-│   ├── preload/                 # Electron preload scripts
-│   │   └── index.ts             # Context bridge setup
-│   └── renderer/                # Frontend UI (React + Tailwind)
-│       ├── App.tsx              # Root component
-│       ├── main.tsx             # React entry point
-│       ├── components/          # UI Components
-│       │   ├── ChatView.tsx     # Main chat interface
-│       │   ├── ConfigModal.tsx  # Settings dialog
-│       │   ├── ContextPanel.tsx # File context display
-│       │   ├── MessageCard.tsx  # Chat message component
-│       │   ├── PermissionDialog.tsx
-│       │   ├── Sidebar.tsx      # Navigation sidebar
-│       │   ├── Titlebar.tsx     # Custom window titlebar
-│       │   ├── TracePanel.tsx   # AI reasoning trace
-│       │   └── WelcomeView.tsx  # Onboarding screen
-│       ├── hooks/               # Custom React hooks
-│       │   └── useIPC.ts        # IPC communication hook
-│       ├── store/               # State management
-│       │   └── index.ts
-│       ├── styles/              # CSS styles
-│       │   └── globals.css
-│       ├── types/               # TypeScript types
-│       │   └── index.ts
-│       └── utils/               # Utility functions
-├── .claude/
-│   └── skills/                  # Default Skill Definitions
-│       ├── pptx/                # PowerPoint generation
-│       ├── docx/                # Word document processing
-│       ├── pdf/                 # PDF handling & forms
-│       ├── xlsx/                # Excel spreadsheet support
-│       └── skill-creator/       # Skill development toolkit
-├── resources/                   # Static Assets (icons, images)
-├── electron-builder.yml         # Build configuration
-├── vite.config.ts               # Vite bundler config
-└── package.json                 # Dependencies & scripts
+│   ├── main/                    # Electron main process
+│   │   ├── claude/              # Agent runner and provider logic
+│   │   ├── config/              # Persistent configuration
+│   │   ├── credentials/         # Auth / credential handling
+│   │   ├── mcp/                 # MCP-related runtime
+│   │   ├── oauth/               # OAuth support
+│   │   ├── remote/              # Remote-control config/runtime
+│   │   └── utils/               # Shared helpers
+│   ├── preload/                 # Electron preload bridge
+│   └── renderer/                # React frontend
+├── .claude/skills/              # Built-in skills
+├── resources/                   # Static assets
+├── electron-builder.yml         # Packaging config
+├── vite.config.ts               # Frontend build config
+└── package.json                 # Scripts and dependencies
 ```
 
 ---
 
-## 🗺️ Roadmap
+<a id="contributing"></a>
+## Contributing
 
-- [x] **Core**: Stable Windows & macOS Installers
-- [x] **Security**: Full Filesystem Sandboxing
-- [x] **Skills**: PPTX, DOCX, PDF, XLSX Support + Custom Skill Management
-- [x] **VM Sandbox**: WSL2 (Windows) and Lima (macOS) isolation support
-- [x] **MCP Connectors**: Custom connector support for external service integration
-- [x] **Rich Input**: File upload and image input in chat
-- [x] **Multi-Model**: OpenAI-compatible API support (iterating)
-- [x] **UI/UX**: Enhanced interface with English/Chinese localization
-- [ ] **Memory Optimization**: Improved context management for longer sessions and cross-session memory.
-- [ ] **New Features**: Stay tuned!
+Contributions are welcome.
+
+1. Fork the repo
+2. Create a branch
+3. Make your changes
+4. Open a PR
 
 ---
 
-## 🛠️ Contributing
-
-We welcome contributions! Whether it's a new Skill, a UI fix, or a security improvement:
-
-1. Fork the repo.
-2. Create a branch (`git checkout -b feature/NewSkill`).
-3. Submit a PR.
-
----
-
-## 📄 License
+## License
 
 MIT © OpenGolem Team
 
 ---
 
 <p align="center">
-  Made by the OpenGolem Team with the help of opus4.5
+  Made by the OpenGolem Team
 </p>
