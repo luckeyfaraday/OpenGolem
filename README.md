@@ -130,6 +130,12 @@ To build installers locally:
 - **Windows:** `npm run build:win`
 - **macOS/Linux:** `npm run build`
 
+If you update the app icon, regenerate the derived packaging assets first:
+
+```bash
+npm run build:icons
+```
+
 ### Windows release automation
 
 Pushing a Git tag triggers [`.github/workflows/windows-release.yml`](.github/workflows/windows-release.yml), which builds the Windows installer on `windows-latest` and uploads release assets to the matching GitHub release.
