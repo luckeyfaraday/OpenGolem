@@ -96,6 +96,16 @@ import {
   loginOpenAICodex,
 } from '@mariozechner/pi-ai/oauth';
 
+const APP_NAME = 'OpenGolem';
+const APP_ID = 'com.opengolem.app';
+
+function getBundledResourcePath(...segments: string[]): string {
+  const resourceRoot = app.isPackaged
+    ? process.resourcesPath
+    : resolve(__dirname, '../../resources');
+  return join(resourceRoot, ...segments);
+}
+
 // Current working directory (persisted between sessions)
 let currentWorkingDir: string | null = null;
 
@@ -117,6 +127,11 @@ if (configStore.isConfigured()) {
 
 // Disable hardware acceleration for better compatibility
 app.disableHardwareAcceleration();
+app.setName(APP_NAME);
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_ID);
+}
 
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager | null = null;
@@ -288,7 +303,7 @@ function setupTray() {
   if (tray) return;
 
   const iconName = process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png';
-  const iconPath = join(__dirname, '../../resources', iconName);
+  const iconPath = getBundledResourcePath(iconName);
 
   // Gracefully skip tray if icon is missing (e.g. dev environment)
   if (!fs.existsSync(iconPath)) {
@@ -368,6 +383,7 @@ function createWindow() {
     height: 900,
     minWidth: 800,
     minHeight: 600,
+    title: APP_NAME,
     backgroundColor: THEME.background,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -385,9 +401,17 @@ function createWindow() {
     // Windows: Use frameless window with custom titlebar
     // Note: frame: false removes native frame, allowing custom titlebar
     windowOptions.frame = false;
+    const iconPath = getBundledResourcePath('icon.ico');
+    if (fs.existsSync(iconPath)) {
+      windowOptions.icon = iconPath;
+    }
   } else {
     // Linux: Use frameless window
     windowOptions.frame = false;
+    const iconPath = getBundledResourcePath('icon.png');
+    if (fs.existsSync(iconPath)) {
+      windowOptions.icon = iconPath;
+    }
   }
 
   mainWindow = new BrowserWindow(windowOptions);
