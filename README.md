@@ -140,6 +140,8 @@ npm run build:icons
 
 Pushing a Git tag triggers [`.github/workflows/windows-release.yml`](.github/workflows/windows-release.yml), which builds the Windows installer on `windows-latest` and uploads release assets to the matching GitHub release.
 
+For tagged release builds, the workflow syncs the packaged app version from the Git tag before running `electron-builder`. For example, tag `v1.0.0-beta.6` produces `OpenGolem-1.0.0-beta.6-win-x64.exe` even if the checked-in `package.json` version has not been bumped yet.
+
 ---
 
 ## Sandbox and security

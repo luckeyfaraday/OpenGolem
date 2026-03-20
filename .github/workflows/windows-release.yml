@@ -24,6 +24,8 @@ concurrency:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      RELEASE_REF: ${{ inputs.ref || github.event.release.tag_name || github.ref_name }}
 
     steps:
       - name: Check out source
@@ -40,6 +42,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Sync package version from tag
+        run: npm run build:version-from-ref -- "$env:RELEASE_REF"
 
       - name: Build Windows installer
         run: npm run build:win -- --publish never
