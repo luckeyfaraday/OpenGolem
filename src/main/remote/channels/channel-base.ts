@@ -23,7 +23,14 @@ export abstract class ChannelBase extends EventEmitter implements IChannel {
   get connected(): boolean {
     return this._connected;
   }
-  
+
+  /**
+   * Default DM policy - subclasses should override
+   */
+  getDmPolicy(): 'open' | 'pairing' | 'allowlist' {
+    return 'pairing';
+  }
+
   /**
    * Start the channel
    * Subclasses must implement this method

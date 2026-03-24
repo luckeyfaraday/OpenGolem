@@ -1,9 +1,11 @@
 /**
  * Message Router
- * 消息路由器：将远程消息路由到 Agent，将 Agent 响应路由回 Channel
+ * 消息路由器:将远程消息路由到 Agent,将 Agent 响应路由回 Channel
  */
 
 import path from 'node:path';
+import fs from 'node:fs';
+import { app } from 'electron';
 import { log, logError } from '../utils/logger';
 import { isUncPath, isWindowsDrivePath } from '../../shared/local-file-path';
 import { resolvePathAgainstWorkspace } from '../../shared/workspace-path';
@@ -42,31 +44,35 @@ interface QueuedMessage {
 export class MessageRouter {
   // Session mappings: channelType:channelId[:userId] -> session
   private sessionMappings: Map<string, RemoteSessionMapping> = new Map();
-  
+
   // Message queues per session
   private messageQueues: Map<string, QueuedMessage[]> = new Map();
-  
+
   // Processing flags
   private processingSession: Set<string> = new Set();
-  
+
   // Callbacks
   private responseCallback?: ResponseCallback;
   private agentCallback?: AgentCallback;
   private workingDirectoryValidator?: WorkingDirectoryValidator;
-  
+
   // Accumulated response text per session (for streaming)
   private responseBuffers: Map<string, string> = new Map();
-  
-  // Session ID generator
-  private sessionIdCounter: number = 0;
-  
+
   // Default working directory for new sessions
   private defaultWorkingDirectory?: string;
 
   // Periodic cleanup timer
   private cleanupInterval: NodeJS.Timeout | null = null;
 
+  // Persistence file path
+  private persistencePath: string;
+
   constructor() {
+    // Set persistence path in user data directory
+    const userDataPath = app?.getPath?.('userData') || process.cwd();
+    this.persistencePath = path.join(userDataPath, 'remote-sessions.json');
+    this.loadSessionMappings();
     this.startPeriodicCleanup();
   }
 
@@ -82,7 +88,51 @@ export class MessageRouter {
       this.cleanupInterval = null;
     }
   }
-  
+
+  /**
+   * Load session mappings from persistent storage
+   */
+  private loadSessionMappings(): void {
+    try {
+      if (fs.existsSync(this.persistencePath)) {
+        const data = JSON.parse(fs.readFileSync(this.persistencePath, 'utf-8'));
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            if (item.sessionId && item.channelType && item.channelId) {
+              // Reconstruct sessionKey: DM uses userId, groups use channelId
+              const sessionKey = item.userId
+                ? `${item.channelType}:dm:${item.userId}`
+                : `${item.channelType}:group:${item.channelId}`;
+              this.sessionMappings.set(sessionKey, item);
+            }
+          }
+          log('[MessageRouter] Loaded session mappings from disk:', this.sessionMappings.size, 'sessions');
+        }
+      }
+    } catch (error) {
+      logError('[MessageRouter] Failed to load session mappings:', error);
+    }
+  }
+
+  /**
+   * Save session mappings to persistent storage
+   */
+  private saveSessionMappings(): void {
+    try {
+      const data = Array.from(this.sessionMappings.values());
+      fs.writeFileSync(this.persistencePath, JSON.stringify(data, null, 2));
+    } catch (error) {
+      logError('[MessageRouter] Failed to save session mappings:', error);
+    }
+  }
+
+  /**
+   * Force-persist session mappings to disk. Called after updates like actualSessionId changes.
+   */
+  persistSessions(): void {
+    this.saveSessionMappings();
+  }
+
   /**
    * Set default working directory for remote sessions
    */
@@ -90,14 +140,14 @@ export class MessageRouter {
     this.defaultWorkingDirectory = dir;
     log('[MessageRouter] Default working directory set to:', dir || '(none)');
   }
-  
+
   /**
    * Set response callback (called when agent produces a response)
    */
   onResponse(callback: ResponseCallback): void {
     this.responseCallback = callback;
   }
-  
+
   /**
    * Set agent callback (called to execute agent)
    */
@@ -108,37 +158,38 @@ export class MessageRouter {
   setWorkingDirectoryValidator(validator: WorkingDirectoryValidator): void {
     this.workingDirectoryValidator = validator;
   }
-  
+
   /**
    * Route incoming message to agent
    */
   async routeMessage(message: RemoteMessage): Promise<void> {
     const sessionKey = this.getSessionKey(message);
-    
+
     log('[MessageRouter] Routing message:', {
       sessionKey,
       messageId: message.id,
       contentType: message.content.type,
     });
-    
+
     // Get or create session mapping
     let mapping = this.sessionMappings.get(sessionKey);
     if (!mapping) {
       mapping = this.createSessionMapping(message, sessionKey);
       this.sessionMappings.set(sessionKey, mapping);
+      this.saveSessionMappings();
       log('[MessageRouter] Created new session mapping:', mapping);
     }
-    
+
     // Update last active time
     mapping.lastActiveAt = Date.now();
-    
+
     // Add to queue
     this.addToQueue(mapping.sessionId, message);
-    
+
     // Process queue
     await this.processQueue(mapping.sessionId);
   }
-  
+
   /**
    * Get session key from message
    * For DMs: channelType:userId
@@ -151,13 +202,16 @@ export class MessageRouter {
       return `${message.channelType}:dm:${message.sender.id}`;
     }
   }
-  
+
   /**
    * Create new session mapping
    */
-  private createSessionMapping(message: RemoteMessage, _key: string): RemoteSessionMapping {
-    const sessionId = this.generateSessionId();
-    
+  private createSessionMapping(message: RemoteMessage, sessionKey: string): RemoteSessionMapping {
+    // Use sessionKey as sessionId so it's stable across restarts.
+    // This ensures the remote session ID is deterministic for a given
+    // sender/channel, avoiding "session not found" errors after restart.
+    const sessionId = sessionKey;
+
     return {
       channelType: message.channelType,
       channelId: message.channelId,
@@ -198,15 +252,7 @@ export class MessageRouter {
     }
     return resolvePathAgainstWorkspace(cwd, currentWorkingDirectory);
   }
-  
-  /**
-   * Generate unique session ID for remote sessions
-   */
-  private generateSessionId(): string {
-    this.sessionIdCounter++;
-    return `remote-${Date.now()}-${this.sessionIdCounter}`;
-  }
-  
+
   /**
    * Add message to queue
    */
@@ -214,18 +260,18 @@ export class MessageRouter {
     if (!this.messageQueues.has(sessionId)) {
       this.messageQueues.set(sessionId, []);
     }
-    
+
     this.messageQueues.get(sessionId)!.push({
       message,
       addedAt: Date.now(),
     });
-    
+
     log('[MessageRouter] Added message to queue:', {
       sessionId,
       queueLength: this.messageQueues.get(sessionId)!.length,
     });
   }
-  
+
   /**
    * Process message queue for a session
    */
@@ -235,15 +281,15 @@ export class MessageRouter {
       log('[MessageRouter] Session already processing, will process later:', sessionId);
       return;
     }
-    
+
     const queue = this.messageQueues.get(sessionId);
     if (!queue || queue.length === 0) {
       return;
     }
-    
+
     // Mark as processing
     this.processingSession.add(sessionId);
-    
+
     try {
       while (queue.length > 0) {
         const item = queue.shift()!;
@@ -253,7 +299,7 @@ export class MessageRouter {
       this.processingSession.delete(sessionId);
     }
   }
-  
+
   /**
    * Process a single message
    */
@@ -262,16 +308,16 @@ export class MessageRouter {
       logError('[MessageRouter] Agent callback not set');
       return;
     }
-    
+
     log('[MessageRouter] Processing message:', {
       sessionId,
       messageId: message.id,
     });
-    
+
     // Convert remote content to agent content blocks
     const content = this.convertToContentBlocks(message);
     const { prompt, cwd } = this.extractPromptAndCwd(message);
-    
+
     // Get session mapping to update/get working directory
     const sessionKey = this.getSessionKey(message);
     const mapping = this.sessionMappings.get(sessionKey);
@@ -293,7 +339,7 @@ export class MessageRouter {
         return;
       }
     }
-    
+
     // Handle !cd command (change directory without executing prompt)
     if (!prompt && resolvedCwd) {
       const ensuredMapping = this.ensureSessionMapping(message, sessionKey, sessionId);
@@ -303,7 +349,7 @@ export class MessageRouter {
       await this.sendCwdChangeResponse(message, resolvedCwd);
       return;
     }
-    
+
     // Determine working directory for this message
     // Priority: 1. [cwd:] prefix in message, 2. session's current cwd, 3. default cwd
     let workingDirectory = resolvedCwd;
@@ -313,12 +359,12 @@ export class MessageRouter {
     if (!workingDirectory) {
       workingDirectory = this.defaultWorkingDirectory;
     }
-    
+
     log('[MessageRouter] Using working directory:', workingDirectory || '(default)');
-    
+
     // Initialize response buffer
     this.responseBuffers.set(sessionId, '');
-    
+
     try {
       // Call agent with working directory and channel info
       await this.agentCallback(
@@ -342,20 +388,20 @@ export class MessageRouter {
         const ensuredMapping = this.ensureSessionMapping(message, sessionKey, sessionId);
         ensuredMapping.workingDirectory = resolvedCwd;
       }
-      
+
       // Send final accumulated response
       await this.sendFinalResponse(sessionId, message);
-      
+
     } catch (error) {
       logError('[MessageRouter] Error processing message:', error);
-      
+
       // Send error response
       await this.sendErrorResponse(message, error);
     } finally {
       this.responseBuffers.delete(sessionId);
     }
   }
-  
+
   /**
    * Send confirmation for working directory change
    */
@@ -363,7 +409,7 @@ export class MessageRouter {
     if (!this.responseCallback) {
       return;
     }
-    
+
     const response: RemoteResponse = {
       channelType: originalMessage.channelType,
       channelId: originalMessage.channelId,
@@ -373,16 +419,16 @@ export class MessageRouter {
       },
       replyTo: originalMessage.id,
     };
-    
+
     await this.responseCallback(response);
   }
-  
+
   /**
    * Convert remote message content to agent content blocks
    */
   private convertToContentBlocks(message: RemoteMessage): ContentBlock[] {
     const blocks: ContentBlock[] = [];
-    
+
     switch (message.content.type) {
       case 'text':
         if (message.content.text) {
@@ -392,7 +438,7 @@ export class MessageRouter {
           } as TextContent);
         }
         break;
-        
+
       case 'image':
         // TODO: Download image and convert to base64
         if (message.content.imageUrl) {
@@ -403,7 +449,7 @@ export class MessageRouter {
           } as TextContent);
         }
         break;
-        
+
       case 'file':
         if (message.content.file) {
           blocks.push({
@@ -412,7 +458,7 @@ export class MessageRouter {
           } as TextContent);
         }
         break;
-        
+
       case 'voice':
         // TODO: Transcribe voice message
         blocks.push({
@@ -420,17 +466,17 @@ export class MessageRouter {
           text: '[用户发送了语音消息]',
         } as TextContent);
         break;
-        
+
       default:
         blocks.push({
           type: 'text',
           text: message.content.text || '[不支持的消息类型]',
         } as TextContent);
     }
-    
+
     return blocks;
   }
-  
+
   /**
    * Extract prompt text and working directory from message
    * Supports [cwd:路径] prefix to specify working directory
@@ -438,14 +484,14 @@ export class MessageRouter {
    */
   private extractPromptAndCwd(message: RemoteMessage): { prompt: string; cwd?: string } {
     let cwd: string | undefined;
-    
+
     if (message.content.type === 'text' && message.content.text) {
       // Remove @mention if present
       let text = message.content.text;
-      
+
       // Remove common mention patterns
       text = text.replace(/@\S+\s*/g, '').trim();
-      
+
       // Check for [cwd:路径] prefix
       // Supports both [cwd:路径] and [cwd: 路径] formats
       const cwdMatch = text.match(/^\[cwd:\s*([^\]]+)\]\s*/i);
@@ -454,40 +500,40 @@ export class MessageRouter {
         text = text.slice(cwdMatch[0].length).trim();
         log('[MessageRouter] Extracted cwd from message:', cwd);
       }
-      
+
       // Check for !cd command (sets session cwd without executing a prompt)
       const cdMatch = text.match(/^!cd\s+(.+)$/i);
       if (cdMatch) {
         cwd = cdMatch[1].trim();
         return { prompt: '', cwd };
       }
-      
+
       return { prompt: text || '你好', cwd };
     }
-    
+
     return { prompt: '请处理上述内容', cwd };
   }
-  
+
   /**
    * Handle agent message (complete message)
    */
   private handleAgentMessage(sessionId: string, _originalMessage: RemoteMessage, agentMessage: Message): void {
     // Extract text from agent message
     const textContent = agentMessage.content.find(c => c.type === 'text') as TextContent | undefined;
-    
+
     if (textContent?.text) {
       // Accumulate response
       const buffer = this.responseBuffers.get(sessionId) || '';
       this.responseBuffers.set(sessionId, buffer + textContent.text);
     }
-    
+
     log('[MessageRouter] Received agent message:', {
       sessionId,
       role: agentMessage.role,
       contentTypes: agentMessage.content.map(c => c.type),
     });
   }
-  
+
   /**
    * Handle partial response (streaming)
    */
@@ -496,22 +542,22 @@ export class MessageRouter {
     const buffer = this.responseBuffers.get(sessionId) || '';
     this.responseBuffers.set(sessionId, buffer + delta);
   }
-  
+
   /**
    * Send final accumulated response
    */
   private async sendFinalResponse(sessionId: string, originalMessage: RemoteMessage): Promise<void> {
     const responseText = this.responseBuffers.get(sessionId);
-    
+
     if (!responseText || !this.responseCallback) {
       return;
     }
-    
+
     log('[MessageRouter] Sending final response:', {
       sessionId,
       textLength: responseText.length,
     });
-    
+
     const response: RemoteResponse = {
       channelType: originalMessage.channelType,
       channelId: originalMessage.channelId,
@@ -521,10 +567,10 @@ export class MessageRouter {
       },
       replyTo: originalMessage.id,
     };
-    
+
     await this.responseCallback(response);
   }
-  
+
   /**
    * Send error response
    */
@@ -532,9 +578,9 @@ export class MessageRouter {
     if (!this.responseCallback) {
       return;
     }
-    
+
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
+
     const response: RemoteResponse = {
       channelType: originalMessage.channelType,
       channelId: originalMessage.channelId,
@@ -544,34 +590,78 @@ export class MessageRouter {
       },
       replyTo: originalMessage.id,
     };
-    
+
     await this.responseCallback(response);
   }
-  
+
   /**
    * Get active session count
    */
   getActiveSessionCount(): number {
     return this.sessionMappings.size;
   }
-  
+
   /**
    * Get session mapping by key
    */
   getSessionMapping(channelType: ChannelType, channelId: string, userId?: string): RemoteSessionMapping | undefined {
-    const key = userId 
+    const key = userId
       ? `${channelType}:dm:${userId}`
       : `${channelType}:group:${channelId}`;
     return this.sessionMappings.get(key);
   }
-  
+
   /**
    * Get all session mappings
    */
   getAllSessionMappings(): RemoteSessionMapping[] {
     return Array.from(this.sessionMappings.values());
   }
-  
+
+  /**
+   * Get session mapping by remote session ID
+   */
+  getSessionMappingForRemoteSessionId(sessionId: string): RemoteSessionMapping | undefined {
+    for (const mapping of this.sessionMappings.values()) {
+      if (mapping.sessionId === sessionId) {
+        return mapping;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Rebuild reverse session mappings from loaded session data.
+   * Called by RemoteManager after MessageRouter loads persisted sessions.
+   */
+  rebuildReverseMapping(
+    remoteSessionIds: Set<string>,
+    sessionIdMapping: Map<string, string>,
+    reverseSessionIdMapping: Map<string, string>
+  ): void {
+    for (const mapping of this.sessionMappings.values()) {
+      if (mapping.actualSessionId) {
+        remoteSessionIds.add(mapping.sessionId);
+        sessionIdMapping.set(mapping.actualSessionId, mapping.sessionId);
+        reverseSessionIdMapping.set(mapping.sessionId, mapping.actualSessionId);
+      }
+    }
+    log('[MessageRouter] Rebuilt reverse mappings for', this.sessionMappings.size, 'sessions');
+  }
+
+  /**
+   * Get channel info for a remote session ID (fallback to sessionMappings if not in memory)
+   */
+  getChannelInfoForSession(sessionId: string): { channelType: ChannelType; channelId: string } | undefined {
+    // Try sessionChannelMapping first (in-memory, per RemoteManager)
+    // If not found, try sessionMappings (persisted)
+    const mapping = this.getSessionMappingForRemoteSessionId(sessionId);
+    if (mapping) {
+      return { channelType: mapping.channelType, channelId: mapping.channelId };
+    }
+    return undefined;
+  }
+
   /**
    * Clear session mapping
    */
@@ -588,7 +678,7 @@ export class MessageRouter {
     }
     return false;
   }
-  
+
   /**
    * Clear all sessions
    */
@@ -599,14 +689,14 @@ export class MessageRouter {
     this.processingSession.clear();
     log('[MessageRouter] Cleared all sessions');
   }
-  
+
   /**
    * Cleanup stale sessions (older than specified time)
    */
   cleanupStaleSessions(maxAge: number = 24 * 60 * 60 * 1000): number {
     const now = Date.now();
     let cleaned = 0;
-    
+
     for (const [key, mapping] of this.sessionMappings) {
       if (now - mapping.lastActiveAt > maxAge) {
         this.sessionMappings.delete(key);
@@ -614,11 +704,11 @@ export class MessageRouter {
         cleaned++;
       }
     }
-    
+
     if (cleaned > 0) {
       log('[MessageRouter] Cleaned up stale sessions:', cleaned);
     }
-    
+
     return cleaned;
   }
 }

@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from './store';
 import { useIPC } from './hooks/useIPC';
 import { useWindowSize } from './hooks/useWindowSize';
+import { useContextMenu } from './hooks/useContextMenu';
 import { Sidebar } from './components/Sidebar';
 import { WelcomeView } from './components/WelcomeView';
 import { PermissionDialog } from './components/PermissionDialog';
@@ -11,6 +12,7 @@ import { SandboxSetupDialog } from './components/SandboxSetupDialog';
 import { SandboxSyncToast } from './components/SandboxSyncToast';
 import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { PanelErrorBoundary } from './components/PanelErrorBoundary';
+import { ContextMenu } from './components/ContextMenu';
 import type { AppConfig } from './types';
 import type { GlobalNoticeAction } from './store';
 
@@ -58,6 +60,7 @@ function App() {
   const setContextPanelCollapsed = useAppStore((s) => s.setContextPanelCollapsed);
   const { listSessions, isElectron } = useIPC();
   const { width } = useWindowSize();
+  const { menuState, menuRef, handleAction } = useContextMenu();
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);
 
@@ -179,6 +182,16 @@ function App() {
           </PanelErrorBoundary>
         )}
       </div>
+
+      {/* Context Menu */}
+      {menuState.visible && (
+        <ContextMenu
+          x={menuState.x}
+          y={menuState.y}
+          menuRef={menuRef}
+          onAction={handleAction}
+        />
+      )}
       
       {/* Permission Dialog */}
       {pendingPermission && <PermissionDialog permission={pendingPermission} />}

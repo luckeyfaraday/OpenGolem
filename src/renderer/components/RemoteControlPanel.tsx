@@ -93,7 +93,8 @@ interface TunnelStatus {
 }
 
 // 配置步骤
-type ConfigStep = 'feishu' | 'connection' | 'advanced';
+type ConfigStep = 'channel' | 'credentials' | 'connection' | 'advanced';
+type ChannelType = 'telegram' | 'feishu';
 type LocalizedBanner = { key?: string; text?: string | null };
 
 export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
@@ -108,13 +109,18 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
   const [isTogglingGateway, setIsTogglingGateway] = useState(false);
   const [error, setError] = useState<LocalizedBanner | null>(null);
   const [success, setSuccess] = useState<LocalizedBanner | null>(null);
-  const [activeStep, setActiveStep] = useState<ConfigStep>('feishu');
+  const [activeStep, setActiveStep] = useState<ConfigStep>('channel');
+
+  // Channel selection
+  const [selectedChannel, setSelectedChannel] = useState<ChannelType>('telegram');
 
   // Form state
   const [feishuAppId, setFeishuAppId] = useState('');
   const [feishuAppSecret, setFeishuAppSecret] = useState('');
   const [feishuDmPolicy, setFeishuDmPolicy] = useState('pairing');
-  const [gatewayPort, setGatewayPort] = useState(18789);
+  const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [telegramDmPolicy, setTelegramDmPolicy] = useState('pairing');
+  const [gatewayPort, setGatewayPort] = useState(18790);
   const [defaultWorkingDirectory, setDefaultWorkingDirectory] = useState('');
   const [autoApproveSafeTools, setAutoApproveSafeTools] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -162,7 +168,7 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
       setWebhookUrl(webhookUrlResult);
 
       if (configResult) {
-        setGatewayPort(configResult.gateway?.port || 18789);
+        setGatewayPort(configResult.gateway?.port || 18790);
         setDefaultWorkingDirectory(configResult.gateway?.defaultWorkingDirectory || '');
         setAutoApproveSafeTools(configResult.gateway?.autoApproveSafeTools !== false);
         setTunnelEnabled(configResult.gateway?.tunnel?.enabled || false);
@@ -172,6 +178,13 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
           setFeishuAppSecret(configResult.channels.feishu.appSecret || '');
           setFeishuDmPolicy(configResult.channels.feishu.dm?.policy || 'pairing');
           setUseLongConnection(configResult.channels.feishu.useWebSocket !== false);
+        }
+        if (configResult.channels?.telegram) {
+          setTelegramBotToken(configResult.channels.telegram.botToken || '');
+          setTelegramDmPolicy(configResult.channels.telegram.dm?.policy || 'pairing');
+          setSelectedChannel('telegram');
+        } else if (configResult.channels?.feishu) {
+          setSelectedChannel('feishu');
         }
       }
     } catch (err) {
@@ -246,6 +259,14 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
         });
       }
 
+      if (telegramBotToken) {
+        await window.electronAPI.remote.updateTelegramConfig({
+          type: 'telegram',
+          botToken: telegramBotToken,
+          dm: { policy: telegramDmPolicy as 'open' | 'pairing' | 'allowlist' },
+        });
+      }
+
       setSuccess({ key: 'remote.configSaved' });
       setTimeout(() => setSuccess(null), 3000);
       await loadData();
@@ -288,6 +309,8 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
 
   // 检查配置完成度
   const isFeishuConfigured = !!(feishuAppId && feishuAppSecret);
+  const isTelegramConfigured = !!telegramBotToken;
+  const isChannelConfigured = isTelegramConfigured || isFeishuConfigured;
   const isConnectionConfigured =
     useLongConnection || (tunnelEnabled && ngrokAuthToken) || tunnelStatus?.connected;
   const permissionSeparator = i18n.language.startsWith('zh') ? '、' : ', ';
@@ -347,7 +370,7 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
 
             <button
               onClick={toggleGateway}
-              disabled={isTogglingGateway || !isFeishuConfigured}
+              disabled={isTogglingGateway || !isChannelConfigured}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all ${
                 status?.running
                   ? 'bg-error hover:bg-error/90 text-white'
@@ -424,10 +447,16 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
       <div className="flex items-center gap-2 p-1 bg-surface rounded-xl">
         {[
           {
-            id: 'feishu',
-            label: t('remote.stepFeishu'),
+            id: 'channel',
+            label: t('remote.stepChannel'),
+            icon: Smartphone,
+            done: isChannelConfigured,
+          },
+          {
+            id: 'credentials',
+            label: selectedChannel === 'telegram' ? 'Telegram' : 'Feishu',
             icon: MessageSquare,
-            done: isFeishuConfigured,
+            done: selectedChannel === 'telegram' ? isTelegramConfigured : isFeishuConfigured,
           },
           {
             id: 'connection',
@@ -458,8 +487,143 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
 
       {/* 配置内容 */}
       <div className="p-6 rounded-[2rem] border border-border-subtle bg-background/60">
-        {/* 步骤 1: 飞书配置 */}
-        {activeStep === 'feishu' && (
+        {/* 步骤 1: 选择渠道 */}
+        {activeStep === 'channel' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-medium text-text-primary mb-1">
+                {t('remote.stepChannel')}
+              </h3>
+              <p className="text-sm text-text-secondary">Select the messaging channel to use</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => setSelectedChannel('telegram')}
+                className={`p-5 rounded-xl border-2 text-left transition-all ${
+                  selectedChannel === 'telegram'
+                    ? 'border-accent bg-accent/5'
+                    : 'border-border hover:border-accent/50'
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    selectedChannel === 'telegram' ? 'bg-accent/10' : 'bg-surface-active'
+                  }`}>
+                    <svg viewBox="0 0 24 24" className={`w-6 h-6 ${selectedChannel === 'telegram' ? 'text-accent' : 'text-text-muted'}`} fill="currentColor">
+                      <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="font-medium text-text-primary">Telegram</div>
+                    <div className="text-xs text-text-muted">@BotFather token</div>
+                  </div>
+                </div>
+                <div className="text-sm text-text-secondary">
+                  Simplest setup. Just needs a Bot Token from @BotFather.
+                </div>
+                {isTelegramConfigured && (
+                  <div className="mt-2 flex items-center gap-1 text-success text-xs">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Configured
+                  </div>
+                )}
+              </button>
+
+              <button
+                onClick={() => setSelectedChannel('feishu')}
+                className={`p-5 rounded-xl border-2 text-left transition-all ${
+                  selectedChannel === 'feishu'
+                    ? 'border-accent bg-accent/5'
+                    : 'border-border hover:border-accent/50'
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    selectedChannel === 'feishu' ? 'bg-accent/10' : 'bg-surface-active'
+                  }`}>
+                    <MessageSquare className={`w-6 h-6 ${selectedChannel === 'feishu' ? 'text-accent' : 'text-text-muted'}`} />
+                  </div>
+                  <div>
+                    <div className="font-medium text-text-primary">Feishu</div>
+                    <div className="text-xs text-text-muted">Lark / 飞书</div>
+                  </div>
+                </div>
+                <div className="text-sm text-text-secondary">
+                  Enterprise features. Requires Feishu app credentials and permissions setup.
+                </div>
+                {isFeishuConfigured && (
+                  <div className="mt-2 flex items-center gap-1 text-success text-xs">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Configured
+                  </div>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 步骤 2: Telegram 凭证 */}
+        {activeStep === 'credentials' && selectedChannel === 'telegram' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-medium text-text-primary mb-1">Telegram Bot</h3>
+              <p className="text-sm text-text-secondary">
+                使用 @BotFather 在 Telegram 创建机器人，获取 Token
+              </p>
+            </div>
+
+            <div className="grid gap-4">
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">Bot Token</label>
+                <input
+                  type="password"
+                  value={telegramBotToken}
+                  onChange={(e) => setTelegramBotToken(e.target.value)}
+                  className="w-full px-4 py-3 bg-surface-hover border border-border rounded-xl text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 transition-all"
+                  placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxyzXYZ"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  {t('remote.dmPolicy')}
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: 'pairing', label: t('remote.policyPairing'), desc: t('remote.policyPairingDesc') },
+                    { value: 'allowlist', label: t('remote.policyAllowlist'), desc: t('remote.policyAllowlistDesc') },
+                    { value: 'open', label: t('remote.policyOpen'), desc: t('remote.policyOpenDesc') },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setTelegramDmPolicy(option.value)}
+                      className={`p-3 rounded-xl border-2 text-left transition-all ${
+                        telegramDmPolicy === option.value
+                          ? 'border-accent bg-accent/5'
+                          : 'border-border hover:border-accent/50'
+                      }`}
+                    >
+                      <div className="font-medium text-text-primary text-sm">{option.label}</div>
+                      <div className="text-xs text-text-muted mt-0.5">{option.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <a
+              href="https://t.me/BotFather"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-sm text-accent hover:underline"
+            >
+              <ExternalLink className="w-4 h-4" />
+              打开 BotFather 创建机器人
+            </a>
+          </div>
+        )}
+
+        {/* 步骤 2: Feishu 凭证 */}
+        {activeStep === 'credentials' && selectedChannel === 'feishu' && (
           <div className="space-y-6">
             <div>
               <h3 className="text-lg font-medium text-text-primary mb-1">
@@ -499,21 +663,9 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    {
-                      value: 'pairing',
-                      label: t('remote.policyPairing'),
-                      desc: t('remote.policyPairingDesc'),
-                    },
-                    {
-                      value: 'allowlist',
-                      label: t('remote.policyAllowlist'),
-                      desc: t('remote.policyAllowlistDesc'),
-                    },
-                    {
-                      value: 'open',
-                      label: t('remote.policyOpen'),
-                      desc: t('remote.policyOpenDesc'),
-                    },
+                    { value: 'pairing', label: t('remote.policyPairing'), desc: t('remote.policyPairingDesc') },
+                    { value: 'allowlist', label: t('remote.policyAllowlist'), desc: t('remote.policyAllowlistDesc') },
+                    { value: 'open', label: t('remote.policyOpen'), desc: t('remote.policyOpenDesc') },
                   ].map((option) => (
                     <button
                       key={option.value}
@@ -766,9 +918,9 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
                 <input
                   type="number"
                   value={gatewayPort}
-                  onChange={(e) => setGatewayPort(parseInt(e.target.value) || 18789)}
+                  onChange={(e) => setGatewayPort(parseInt(e.target.value) || 18790)}
                   className="w-full px-4 py-3 bg-surface-hover border border-border rounded-xl text-text-primary focus:border-accent focus:outline-none"
-                  placeholder="18789"
+                  placeholder="18790"
                 />
               </div>
 

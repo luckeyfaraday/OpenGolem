@@ -7,7 +7,9 @@ export type SharedProviderType =
   | 'ollama'
   | 'openai-codex'
   | 'google-gemini-cli'
-  | 'google-antigravity';
+  | 'google-antigravity'
+  | 'qwen-cli'
+  | 'minimax';
 
 export type SharedCustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 
@@ -29,6 +31,8 @@ export interface SharedProviderPresets {
   'openai-codex': SharedProviderPreset;
   'google-gemini-cli': SharedProviderPreset;
   'google-antigravity': SharedProviderPreset;
+  'qwen-cli': SharedProviderPreset;
+  minimax: SharedProviderPreset;
 }
 
 export interface ModelInputGuidance {
@@ -163,6 +167,28 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     ],
     keyPlaceholder: 'sk-xxx',
     keyHint: '输入你的 API Key',
+  },
+  'qwen-cli': {
+    name: 'Qwen CLI',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    models: [
+      { id: 'qwen3-coder-plus', name: 'Qwen3 Coder Plus' },
+      { id: 'qwen3-coder-flash', name: 'Qwen3 Coder Flash' },
+      { id: 'qwen-vl-plus', name: 'Qwen3 VL Plus' },
+    ],
+    keyPlaceholder: 'OAuth required',
+    keyHint: 'Connect with your Qwen account',
+  },
+  minimax: {
+    name: 'MiniMax',
+    baseUrl: 'https://api.minimax.chat/v1',
+    models: [
+      { id: 'MiniMax-Text-01', name: 'MiniMax-Text-01' },
+      { id: 'MiniMax-M2.5', name: 'MiniMax-M2.5' },
+      { id: 'MiniMax-M2', name: 'MiniMax-M2' },
+    ],
+    keyPlaceholder: 'eyJh...',
+    keyHint: '从 api.minimax.chat 获取 API Key',
   },
 };
 

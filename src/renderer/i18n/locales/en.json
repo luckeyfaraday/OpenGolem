@@ -777,6 +777,7 @@
     "unknownUser": "Unknown user",
     "pairingCode": "Pairing code",
     "approve": "Approve",
+    "stepChannel": "Channel",
     "stepFeishu": "Feishu setup",
     "stepConnection": "Connection",
     "stepAdvanced": "Advanced",

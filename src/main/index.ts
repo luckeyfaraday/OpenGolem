@@ -48,7 +48,7 @@ import type {
 } from '../renderer/types';
 import { remoteManager, type AgentExecutor } from './remote/remote-manager';
 import { remoteConfigStore } from './remote/remote-config-store';
-import type { GatewayConfig, FeishuChannelConfig, ChannelType } from './remote/types';
+import type { GatewayConfig, FeishuChannelConfig, TelegramChannelConfig, ChannelType } from './remote/types';
 import { startNavServer, stopNavServer } from './nav-server';
 import {
   ScheduledTaskManager,
@@ -2398,6 +2398,16 @@ ipcMain.handle('remote.updateFeishuConfig', async (_event, config: FeishuChannel
     return { success: true };
   } catch (error) {
     logError('[Remote] Error updating Feishu config:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('remote.updateTelegramConfig', async (_event, config: TelegramChannelConfig) => {
+  try {
+    await remoteManager.updateTelegramConfig(config);
+    return { success: true };
+  } catch (error) {
+    logError('[Remote] Error updating Telegram config:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });

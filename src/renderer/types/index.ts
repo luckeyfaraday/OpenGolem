@@ -436,7 +436,9 @@ export type ProviderType =
   | 'ollama'
   | 'openai-codex'
   | 'google-gemini-cli'
-  | 'google-antigravity';
+  | 'google-antigravity'
+  | 'qwen-cli'
+  | 'minimax';
 export type CustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 export type ProviderProfileKey =
   | 'openrouter'
@@ -447,6 +449,8 @@ export type ProviderProfileKey =
   | 'openai-codex'
   | 'google-gemini-cli'
   | 'google-antigravity'
+  | 'qwen-cli'
+  | 'minimax'
   | 'custom:anthropic'
   | 'custom:openai'
   | 'custom:gemini';
@@ -516,6 +520,8 @@ export interface ProviderPresets {
   'openai-codex': ProviderPreset;
   'google-gemini-cli': ProviderPreset;
   'google-antigravity': ProviderPreset;
+  'qwen-cli': ProviderPreset;
+  minimax: ProviderPreset;
 }
 
 export interface ProviderModelInfo {
@@ -523,7 +529,7 @@ export interface ProviderModelInfo {
   name: string;
 }
 
-export type OAuthProviderId = 'openai-codex' | 'google-gemini-cli' | 'google-antigravity';
+export type OAuthProviderId = 'openai-codex' | 'google-gemini-cli' | 'google-antigravity' | 'qwen-cli';
 
 export interface OAuthProviderStatus {
   provider: OAuthProviderId;

@@ -20,6 +20,13 @@ export class FeishuChannel extends ChannelBase {
   
   private config: FeishuChannelConfig;
   private api: FeishuAPI;
+
+  /**
+   * Get DM policy for this channel
+   */
+  getDmPolicy(): 'open' | 'pairing' | 'allowlist' {
+    return this.config.dm?.policy || 'pairing';
+  }
   private wsClient?: any;  // WebSocket client for long polling
   
   // Bot info

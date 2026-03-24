@@ -369,16 +369,19 @@ export interface RemoteResponseContent {
 export interface RemoteSessionMapping {
   /** Remote channel type */
   channelType: ChannelType;
-  
+
   /** Remote chat/room ID */
   channelId: string;
-  
+
   /** Remote user ID (for DM sessions) */
   userId?: string;
-  
-  /** Local session ID */
+
+  /** Remote session ID (equals sessionKey: channelType:dm:userId) */
   sessionId: string;
-  
+
+  /** Actual local session ID (from agent executor). Persisted so sessions survive restart. */
+  actualSessionId?: string;
+
   /** Working directory for this session */
   workingDirectory?: string;
   
@@ -436,6 +439,9 @@ export interface IChannel {
   
   /** Set error handler */
   onError(handler: (error: Error) => void): void;
+
+  /** Get DM policy for this channel */
+  getDmPolicy(): 'open' | 'pairing' | 'allowlist';
 }
 
 // ============================================================================
@@ -525,7 +531,7 @@ export interface RemoteConfig {
 export const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
   gateway: {
     enabled: false,
-    port: 18789,
+    port: 18790,
     bind: '127.0.0.1',
     auth: {
       mode: 'allowlist',  // Empty allowlist = allow everyone

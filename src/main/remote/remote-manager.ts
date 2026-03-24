@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { RemoteGateway } from './gateway';
 import { MessageRouter } from './message-router';
 import { FeishuChannel } from './channels/feishu';
+import { TelegramChannel } from './channels/telegram/telegram-channel';
 import { remoteConfigStore } from './remote-config-store';
 import { tunnelManager, TunnelStatus } from './tunnel-manager';
 import { buildRemoteSessionTitle } from './remote-title';
@@ -16,6 +17,7 @@ import type {
   GatewayStatus,
   GatewayConfig,
   FeishuChannelConfig,
+  TelegramChannelConfig,
   ChannelType,
   RemoteSessionMapping,
   PairedUser,
@@ -91,12 +93,35 @@ export class RemoteManager extends EventEmitter {
   // Lock for synchronizing pendingInteractions access
   private interactionLock = false;
 
+  /**
+   * Get channel info for a remote session ID, restoring from persisted sessionMappings if needed.
+   */
+  private getChannelInfo(remoteSessionId: string): { channelType: ChannelType; channelId: string } | undefined {
+    // Try in-memory map first
+    let info = this.sessionChannelMapping.get(remoteSessionId);
+    if (!info) {
+      // Fall back to persisted session mapping
+      info = this.messageRouter?.getChannelInfoForSession(remoteSessionId);
+      if (info) {
+        // Cache in memory for next time
+        this.sessionChannelMapping.set(remoteSessionId, info);
+      }
+    }
+    return info;
+  }
+
   // 远程默认工作目录（用于未指定 cwd 的会话）
   private defaultWorkingDirectory?: string;
   
   constructor() {
     super();
     this.messageRouter = new MessageRouter();
+    // Rebuild reverse mappings from persisted sessions so continuations work after restart
+    this.messageRouter.rebuildReverseMapping(
+      this.remoteSessionIds,
+      this.sessionIdMapping,
+      this.reverseSessionIdMapping
+    );
   }
   
   /**
@@ -296,6 +321,18 @@ export class RemoteManager extends EventEmitter {
   }
   
   /**
+   * Update telegram channel config
+   */
+  async updateTelegramConfig(config: TelegramChannelConfig): Promise<void> {
+    remoteConfigStore.setTelegramConfig(config);
+    
+    // Restart to apply changes
+    if (this.gateway?.running) {
+      await this.restart();
+    }
+  }
+  
+  /**
    * Approve pairing request
    */
   approvePairing(channelType: ChannelType, userId: string): boolean {
@@ -399,7 +436,7 @@ export class RemoteManager extends EventEmitter {
       return null; // Not a remote session
     }
     
-    const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
+    const channelInfo = this.getChannelInfo(remoteSessionId);
     if (!channelInfo || !this.gateway) {
       return null;
     }
@@ -407,7 +444,7 @@ export class RemoteManager extends EventEmitter {
     log('[RemoteManager] Handling question request for remote session:', remoteSessionId);
     
     // Build question message for Feishu
-    let messageText = '🤔 **需要你的回答**\n\n';
+    let messageText = '🤔 **Your input is needed**\n\n';
     
     // @ts-ignore - qIdx not used in this loop but kept for consistency
     questions.forEach((q, qIdx) => {
@@ -426,16 +463,16 @@ export class RemoteManager extends EventEmitter {
         });
         messageText += '\n';
         if (q.multiSelect) {
-          messageText += `*（可多选，用逗号分隔，如: 1,3）*\n\n`;
+          messageText += `*(multi-select, comma-separated, e.g.: 1,3)*\n\n`;
         } else {
-          messageText += `*（请回复选项数字，如: 1）*\n\n`;
+          messageText += `*(reply with option number, e.g.: 1)*\n\n`;
         }
       } else {
         messageText += `*（请直接回复你的答案）*\n\n`;
       }
     });
     
-    messageText += `---\n*回复此消息来作答，或发送 "跳过" 跳过问题*`;
+    messageText += `---\n*Reply to answer, or send "skip" to skip*`;
     
     // Store pending interaction
     const interaction: RemoteInteraction = {
@@ -498,7 +535,7 @@ export class RemoteManager extends EventEmitter {
       return null; // Not a remote session
     }
     
-    const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
+    const channelInfo = this.getChannelInfo(remoteSessionId);
     if (!channelInfo || !this.gateway) {
       return null;
     }
@@ -525,19 +562,19 @@ export class RemoteManager extends EventEmitter {
       if (safeTools.includes(toolName)) {
         log('[RemoteManager] Auto-approving safe tool:', toolName);
         // Send notification to user
-        await this.doSendToChannel(channelInfo, `🔧 自动执行: **${toolName}**`);
+        await this.doSendToChannel(channelInfo, `🔧 Auto-approved tool: **${toolName}**`);
         return { allow: true };
       }
     }
     
     // Build permission request message
-    let messageText = '⚠️ **需要你的授权**\n\n';
+    let messageText = '⚠️ **Your authorization is needed**\n\n';
     messageText += `工具: **${toolName}**\n\n`;
     messageText += `参数:\n\`\`\`json\n${JSON.stringify(input, null, 2)}\n\`\`\`\n\n`;
     messageText += `---\n`;
-    messageText += `回复 "允许" 或 "y" 授权\n`;
-    messageText += `回复 "拒绝" 或 "n" 拒绝\n`;
-    messageText += `回复 "始终允许" 记住此授权`;
+    messageText += `Reply "allow" or "y" to grant\n`;
+    messageText += `Reply "deny" or "n" to refuse\n`;
+    messageText += `Reply "always" to remember this authorization`;
     
     // Store pending interaction
     const interaction: RemoteInteraction = {
@@ -576,7 +613,7 @@ export class RemoteManager extends EventEmitter {
         const lowerResponse = response.toLowerCase().trim();
         if (lowerResponse === '允许' || lowerResponse === 'y' || lowerResponse === 'yes' || lowerResponse === '是') {
           resolve({ allow: true });
-        } else if (lowerResponse === '始终允许' || lowerResponse === 'always') {
+        } else if (lowerResponse === 'always' || lowerResponse === 'always allow') {
           resolve({ allow: true, remember: true });
         } else {
           resolve({ allow: false });
@@ -620,7 +657,7 @@ export class RemoteManager extends EventEmitter {
     // Find any pending interaction for this user
     let found = false;
     for (const [id, interaction] of this.pendingInteractions) {
-      const channelInfo = this.sessionChannelMapping.get(interaction.remoteSessionId);
+      const channelInfo = this.getChannelInfo(interaction.remoteSessionId);
       if (!channelInfo) continue;
 
       if (channelInfo.channelType === channelType && channelInfo.channelId === channelId) {
@@ -711,7 +748,7 @@ export class RemoteManager extends EventEmitter {
       return;
     }
     
-    const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
+    const channelInfo = this.getChannelInfo(remoteSessionId);
     if (!channelInfo || !this.gateway) {
       logError('[RemoteManager] No channel info for remote session:', remoteSessionId);
       return;
@@ -767,7 +804,7 @@ export class RemoteManager extends EventEmitter {
     const remoteSessionId = this.sessionIdMapping.get(actualSessionId);
     if (!remoteSessionId) return;
     
-    const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
+    const channelInfo = this.getChannelInfo(remoteSessionId);
     if (!channelInfo || !this.gateway) return;
     
     // Combine all buffered texts
@@ -831,7 +868,7 @@ export class RemoteManager extends EventEmitter {
     const remoteSessionId = this.sessionIdMapping.get(actualSessionId);
     if (!remoteSessionId) return;
     
-    const channelInfo = this.sessionChannelMapping.get(remoteSessionId);
+    const channelInfo = this.getChannelInfo(remoteSessionId);
     if (!channelInfo || !this.gateway) return;
     
     // Only send notifications for interesting tools
@@ -846,18 +883,18 @@ export class RemoteManager extends EventEmitter {
     switch (status) {
       case 'running':
         emoji = '⏳';
-        statusText = `正在执行 **${toolName}**...`;
+        statusText = `Executing **${toolName}**...`;
         break;
       case 'completed':
         emoji = '✅';
-        statusText = `**${toolName}** 执行完成`;
+        statusText = `**${toolName}** completed`;
         if (output && output.length < 200) {
           statusText += `\n\`\`\`\n${output}\n\`\`\``;
         }
         break;
       case 'error':
         emoji = '❌';
-        statusText = `**${toolName}** 执行失败`;
+        statusText = `**${toolName}** failed`;
         if (output) {
           statusText += `: ${output.substring(0, 100)}`;
         }
@@ -964,7 +1001,20 @@ export class RemoteManager extends EventEmitter {
       log('[RemoteManager] Feishu channel registered');
     }
     
-    // TODO: Register other channels (WeChat, Telegram, DingTalk)
+    // Register Telegram channel if configured
+    const telegramConfig = config.channels.telegram;
+    if (telegramConfig && telegramConfig.botToken) {
+      const telegramChannel = new TelegramChannel(telegramConfig);
+      this.gateway.registerChannel(telegramChannel);
+
+      // Set up webhook handler
+      this.gateway.on('webhook:telegram', (data: any) => {
+        const result = telegramChannel.handleWebhook(data.headers, data.body);
+        data.respond(result.status, result.data);
+      });
+
+      log('[RemoteManager] Telegram channel registered');
+    }
   }
   
   /**
@@ -1001,8 +1051,8 @@ export class RemoteManager extends EventEmitter {
     log('[RemoteManager] Executing agent for session:', sessionId);
     log('[RemoteManager] Working directory:', workingDirectory || '(default)');
     
-    // Check if this is a new remote session
-    const isNewSession = !this.remoteSessionIds.has(sessionId);
+    // Check if this is a new remote session (check reverse mapping which is persisted)
+    const isNewSession = !this.reverseSessionIdMapping.has(sessionId);
     
     if (isNewSession) {
       // Create new session with working directory
@@ -1022,6 +1072,14 @@ export class RemoteManager extends EventEmitter {
       // Store channel info for routing responses back
       this.sessionChannelMapping.set(sessionId, { channelType, channelId });
       
+      // Also update the session mapping in MessageRouter with the actual session ID
+      // so it persists to disk and survives restarts
+      const routerMapping = this.messageRouter?.getSessionMappingForRemoteSessionId(sessionId);
+      if (routerMapping) {
+        routerMapping.actualSessionId = newSession.id;
+        this.messageRouter?.persistSessions();
+      }
+      
       log('[RemoteManager] Created new session:', newSession.id, 'for remote:', sessionId, 'cwd:', workingDirectory);
       log('[RemoteManager] Session mapping stored:', newSession.id, '<->', sessionId);
       log('[RemoteManager] Emitting session update to renderer for:', newSession.id);
@@ -1036,7 +1094,12 @@ export class RemoteManager extends EventEmitter {
       // Continue existing session - use actual session ID
       const actualSessionId = this.reverseSessionIdMapping.get(sessionId);
       if (!actualSessionId) {
-        throw new Error(`No actual session ID found for remote session: ${sessionId}`);
+        // Fallback: sessionId IS the actual session (used when sessionKey is
+        // used as sessionId, making reverse mapping unnecessary for continuation)
+        log('[RemoteManager] No reverse mapping, using sessionId as actualSessionId');
+        this.emitRemoteUserMessage(sessionId, content, prompt);
+        await this.agentExecutor.continueSession(sessionId, prompt, content, workingDirectory);
+        return;
       }
       log('[RemoteManager] Continuing session:', actualSessionId, 'for remote:', sessionId);
       this.emitRemoteUserMessage(actualSessionId, content, prompt);

@@ -263,28 +263,43 @@ export class RemoteGateway extends EventEmitter {
         return;
       }
     }
-    
-    // Check if user is authorized
+
+    // Check if user is authorized (gateway-level check)
     const authorized = await this.checkAuthorization(message);
     if (!authorized) {
-      log('[Gateway] User not authorized:', message.sender.id);
-      
-      // Handle pairing if enabled
+      log('[Gateway] User not authorized at gateway level:', message.sender.id);
+
+      // Handle pairing if enabled at gateway level
       if (this.config.auth.mode === 'pairing') {
         await this.handlePairingRequest(message);
       } else {
-        // Send unauthorized response
-        await this.sendToChannel({
-          channelType: message.channelType,
-          channelId: message.channelId,
-          content: {
-            type: 'text',
-            text: '⚠️ 您没有权限使用此机器人。请联系管理员获取访问权限。',
-          },
-          replyTo: message.id,
-        });
+        await this.sendUnauthorizedResponse(message, 'gateway');
       }
       return;
+    }
+
+    // Check DM policy at channel level (more granular than gateway-level auth)
+    const channel = this.channels.get(message.channelType);
+    if (channel && !message.isGroup) {
+      const dmPolicy = channel.getDmPolicy();
+      if (dmPolicy === 'pairing') {
+        // Check if user is paired for this channel
+        const pairedKey = `${message.channelType}:${message.sender.id}`;
+        if (!this.pairedUsers.has(pairedKey)) {
+          log('[Gateway] User not paired, initiating pairing:', message.sender.id);
+          await this.handlePairingRequest(message);
+          return;
+        }
+      } else if (dmPolicy === 'allowlist') {
+        // Check channel-specific allowlist
+        const channelConfig = (channel as any).config?.dm?.allowFrom as string[] | undefined;
+        if (channelConfig && channelConfig.length > 0 && !channelConfig.includes(message.sender.id)) {
+          log('[Gateway] User not in channel allowlist:', message.sender.id);
+          await this.sendUnauthorizedResponse(message, 'channel allowlist');
+          return;
+        }
+        // If allowlist is empty, allow all (same as before)
+      }
     }
     
     // Check group settings
@@ -375,6 +390,21 @@ export class RemoteGateway extends EventEmitter {
   }
   
   /**
+   * Send unauthorized response to user
+   */
+  private async sendUnauthorizedResponse(message: RemoteMessage, _reason: string): Promise<void> {
+    await this.sendToChannel({
+      channelType: message.channelType,
+      channelId: message.channelId,
+      content: {
+        type: 'text',
+        text: '⚠️ You are not authorized to use this bot. Please contact the administrator.',
+      },
+      replyTo: message.id,
+    });
+  }
+
+  /**
    * Handle pairing request from unauthorized user
    */
   private async handlePairingRequest(message: RemoteMessage): Promise<void> {
@@ -403,7 +433,7 @@ export class RemoteGateway extends EventEmitter {
           channelId: message.channelId,
           content: {
             type: 'text',
-            text: '✅ 配对成功！您现在可以开始使用机器人了。',
+            text: '✅ Pairing successful! You can now use the bot.',
           },
           replyTo: message.id,
         });
@@ -422,7 +452,7 @@ export class RemoteGateway extends EventEmitter {
           channelId: message.channelId,
           content: {
             type: 'text',
-            text: `请输入配对码进行验证。\n\n您的配对码是: **${existing.code}**\n\n请将此配对码发送给管理员进行确认，或直接回复配对码完成配对。`,
+            text: `Please enter your pairing code to verify.\n\nYour pairing code is: **${existing.code}**\n\nSend this code to the admin, or reply with the code directly to complete pairing.`,
           },
           replyTo: message.id,
         });
@@ -448,7 +478,7 @@ export class RemoteGateway extends EventEmitter {
       channelId: message.channelId,
       content: {
         type: 'text',
-        text: `👋 您好！首次使用需要进行配对验证。\n\n您的配对码是: **${code}**\n\n请将此配对码发送给管理员进行确认。配对码有效期10分钟。`,
+        text: `👋 Hi! First-time setup requires pairing.\n\nYour pairing code is: **${code}**\n\nSend this code to the admin for approval. Code expires in 10 minutes.`,
       },
       replyTo: message.id,
     });

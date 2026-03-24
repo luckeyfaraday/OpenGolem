@@ -777,6 +777,7 @@
     "unknownUser": "未知用户",
     "pairingCode": "配对码",
     "approve": "批准",
+    "stepChannel": "选择渠道",
     "stepFeishu": "飞书配置",
     "stepConnection": "连接方式",
     "stepAdvanced": "高级设置",
