@@ -38,6 +38,8 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
     steps:
       - name: Check out source
@@ -62,14 +64,11 @@ jobs:
         run: npm run build:version-from-ref -- "$RELEASE_REF"
 
       - name: Disable signing when Apple certificate secrets are unavailable
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 == '' }}
+        if: ${{ env.APPLE_CERTIFICATE_P12 == '' }}
         run: echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
 
       - name: Prepare Apple signing certificate
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
-        env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
         run: |
           CERT_PATH="$RUNNER_TEMP/apple-signing-cert.p12"
           printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"

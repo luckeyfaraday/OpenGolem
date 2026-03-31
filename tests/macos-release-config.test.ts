@@ -32,6 +32,9 @@ describe('macOS release config', () => {
     expect(source).toContain('Disable signing when Apple certificate secrets are unavailable');
     expect(source).toContain('CSC_IDENTITY_AUTO_DISCOVERY=false');
     expect(source).toContain('Prepare Apple signing certificate');
+    expect(source).toContain("if: ${{ env.APPLE_CERTIFICATE_P12 == '' }}");
+    expect(source).toContain("if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}");
+    expect(source).not.toContain('if: ${{ secrets.APPLE_CERTIFICATE_P12');
     expect(source).toContain('base64 --decode > "$CERT_PATH"');
     expect(source).toContain('echo "CSC_LINK=$CERT_PATH" >> "$GITHUB_ENV"');
     expect(source).toContain('APPLE_ID');
