@@ -16,4 +16,12 @@ describe('MessageCard Claude-style layout', () => {
     expect(source).toContain('rounded-2xl border overflow-hidden');
     expect(source).toContain('rounded-2xl border border-border-subtle bg-background/40 overflow-hidden');
   });
+
+  it('shows compact assistant metadata for token usage and execution time', () => {
+    const source = fs.readFileSync(messageCardPath, 'utf8');
+    expect(source).toContain("t('messageCard.executionTime'");
+    expect(source).toContain("t('context.inputTokens')");
+    expect(source).toContain("t('context.outputTokens')");
+    expect(source).toContain('function formatTokenCount');
+  });
 });

@@ -1,8 +1,17 @@
-import type { AppConfig } from '../config/config-store';
 import { isOAuthProvider, resolveOAuthApiKey } from './oauth-store';
 
+type OAuthConfigLike = {
+  provider: string;
+  apiKey?: string;
+};
+
+type PiProviderConfigLike = {
+  provider: string;
+  customProtocol?: string;
+};
+
 export async function resolveConfiguredApiKey(
-  config: Pick<AppConfig, 'provider' | 'apiKey'>
+  config: OAuthConfigLike
 ): Promise<string> {
   if (isOAuthProvider(config.provider)) {
     return (await resolveOAuthApiKey(config.provider)) || '';
@@ -11,7 +20,7 @@ export async function resolveConfiguredApiKey(
 }
 
 export function getPiProviderForConfig(
-  config: Pick<AppConfig, 'provider' | 'customProtocol'>
+  config: PiProviderConfigLike
 ): string {
   if (config.provider === 'custom') {
     return config.customProtocol || 'anthropic';

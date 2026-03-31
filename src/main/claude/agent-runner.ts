@@ -52,6 +52,7 @@ import {
 } from './pi-model-resolution';
 import { ThinkTagStreamParser } from './think-tag-parser';
 import { getPiProviderForConfig, resolveConfiguredApiKey } from '../oauth/oauth-provider-runtime';
+import { performWebFetch, performWebSearch } from '../tools/web-tools';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -271,6 +272,44 @@ function buildMcpCustomTools(mcpManager: MCPManager): ToolDefinition[] {
     };
     return toolDef;
   });
+}
+
+function buildWebCustomTools(): ToolDefinition[] {
+  const webSearchTool: ToolDefinition<TSchema, unknown> = {
+    name: 'webSearch',
+    label: 'Web Search',
+    description: 'Search the web and return a concise summary of relevant results.',
+    parameters: Type.Object({
+      query: Type.String({ description: 'The search query.' }),
+    }),
+    async execute(_toolCallId, params) {
+      const input = params as { query?: string };
+      const result = await performWebSearch(input.query || '');
+      return {
+        content: [{ type: 'text' as const, text: result }],
+        details: undefined as unknown,
+      };
+    },
+  };
+
+  const webFetchTool: ToolDefinition<TSchema, unknown> = {
+    name: 'webFetch',
+    label: 'Web Fetch',
+    description: 'Fetch a URL and return the response body as text.',
+    parameters: Type.Object({
+      url: Type.String({ description: 'The URL to fetch.' }),
+    }),
+    async execute(_toolCallId, params) {
+      const input = params as { url?: string };
+      const result = await performWebFetch(input.url || '');
+      return {
+        content: [{ type: 'text' as const, text: result }],
+        details: undefined as unknown,
+      };
+    },
+  };
+
+  return [webSearchTool, webFetchTool];
 }
 
 /**
@@ -1495,8 +1534,10 @@ Tool routing:
       // Bridge MCP tools as customTools for pi-coding-agent.
       // Re-read every query so newly added/removed MCP servers take effect immediately.
       const mcpCustomTools = this.mcpManager ? buildMcpCustomTools(this.mcpManager) : [];
-      if (mcpCustomTools.length > 0) {
-        log(`[ClaudeAgentRunner] Registered ${mcpCustomTools.length} MCP tools as customTools:`, mcpCustomTools.map(t => t.name).join(', '));
+      const builtInCustomTools = buildWebCustomTools();
+      const customTools = [...builtInCustomTools, ...mcpCustomTools];
+      if (customTools.length > 0) {
+        log(`[ClaudeAgentRunner] Registered ${customTools.length} customTools:`, customTools.map(t => t.name).join(', '));
       }
 
       // Enrich process.env.PATH for build mode — ensures Skill commands (python3, node)
@@ -1518,7 +1559,7 @@ Tool routing:
       logCtx(`[ClaudeAgentRunner] Session reuse check: cached=${!!cachedSession}`);
       logCtx(`[ClaudeAgentRunner] Model=${piModel.id}, thinkingLevel=${thinkingLevel}`);
       log(`[ClaudeAgentRunner] Built-in tools (${wrappedTools.length}): ${wrappedTools.map((t: { name?: string; type?: string }) => t.name || t.type).join(', ')}`);
-      log(`[ClaudeAgentRunner] Custom MCP tools (${mcpCustomTools.length}): ${mcpCustomTools.map(t => t.name).join(', ')}`);
+      log(`[ClaudeAgentRunner] Custom tools (${customTools.length}): ${customTools.map(t => t.name).join(', ')}`);
 
       let piSession: PiAgentSession;
       if (cachedSession) {
@@ -1558,7 +1599,7 @@ Tool routing:
           authStorage,
           modelRegistry,
           tools: wrappedTools as unknown as ReturnType<typeof createCodingTools>,
-          customTools: mcpCustomTools,
+          customTools,
           sessionManager: PiSessionManager.inMemory(),
           settingsManager: PiSettingsManager.inMemory({
             compaction: { enabled: true },

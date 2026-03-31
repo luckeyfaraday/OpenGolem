@@ -20,6 +20,8 @@ describe('api config state helpers', () => {
   it('maps provider/protocol to profile key and back', () => {
     expect(profileKeyFromProvider('openrouter')).toBe('openrouter');
     expect(profileKeyFromProvider('ollama')).toBe('ollama');
+    expect(profileKeyFromProvider('qwen-cli')).toBe('qwen-cli');
+    expect(profileKeyFromProvider('minimax')).toBe('minimax');
     expect(profileKeyFromProvider('custom', 'openai')).toBe('custom:openai');
     expect(profileKeyFromProvider('custom', 'gemini')).toBe('custom:gemini');
     expect(profileKeyToProvider('custom:anthropic')).toEqual({
@@ -32,6 +34,14 @@ describe('api config state helpers', () => {
     });
     expect(profileKeyToProvider('ollama')).toEqual({
       provider: 'ollama',
+      customProtocol: 'openai',
+    });
+    expect(profileKeyToProvider('qwen-cli')).toEqual({
+      provider: 'qwen-cli',
+      customProtocol: 'openai',
+    });
+    expect(profileKeyToProvider('minimax')).toEqual({
+      provider: 'minimax',
       customProtocol: 'openai',
     });
   });

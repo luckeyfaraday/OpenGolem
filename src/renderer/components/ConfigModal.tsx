@@ -28,7 +28,7 @@ interface ConfigModalProps {
 }
 
 const PROVIDER_LABELS: Record<
-  'openrouter' | 'anthropic' | 'openai' | 'openai-codex' | 'gemini' | 'google-gemini-cli' | 'google-antigravity' | 'ollama' | 'custom',
+  'openrouter' | 'anthropic' | 'openai' | 'openai-codex' | 'gemini' | 'google-gemini-cli' | 'google-antigravity' | 'qwen-cli' | 'ollama' | 'minimax' | 'custom',
   string
 > = {
   openrouter: 'OpenRouter',
@@ -38,7 +38,9 @@ const PROVIDER_LABELS: Record<
   gemini: 'Gemini',
   'google-gemini-cli': 'Gemini CLI',
   'google-antigravity': 'Antigravity',
+  'qwen-cli': 'Qwen CLI',
   ollama: 'Ollama',
+  minimax: 'MiniMax',
   custom: 'Custom',
 };
 
@@ -215,8 +217,8 @@ export function ConfigModal({
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
                 {t('api.oauthProviders')}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {(['openai-codex', 'google-gemini-cli', 'google-antigravity'] as const).map((p) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+                {(['openai-codex', 'google-gemini-cli', 'google-antigravity', 'qwen-cli'] as const).map((p) => (
                   <button
                     key={p}
                     onClick={() => changeProvider(p)}
@@ -237,7 +239,7 @@ export function ConfigModal({
                 {t('api.apiProviders')}
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {(['openrouter', 'anthropic', 'openai', 'gemini', 'ollama', 'custom'] as const).map((p) => (
+                {(['openrouter', 'anthropic', 'openai', 'gemini', 'ollama', 'minimax', 'custom'] as const).map((p) => (
                   <button
                     key={p}
                     onClick={() => changeProvider(p)}

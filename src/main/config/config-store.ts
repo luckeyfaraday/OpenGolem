@@ -41,7 +41,9 @@ export type ProviderType =
   | 'ollama'
   | 'openai-codex'
   | 'google-gemini-cli'
-  | 'google-antigravity';
+  | 'google-antigravity'
+  | 'qwen-cli'
+  | 'minimax';
 export type CustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 export type ProviderProfileKey =
   | 'openrouter'
@@ -52,6 +54,8 @@ export type ProviderProfileKey =
   | 'openai-codex'
   | 'google-gemini-cli'
   | 'google-antigravity'
+  | 'qwen-cli'
+  | 'minimax'
   | 'custom:anthropic'
   | 'custom:openai'
   | 'custom:gemini';
@@ -189,6 +193,16 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
     baseUrl: 'https://daily-cloudcode-pa.sandbox.googleapis.com',
     model: 'gemini-3.1-pro-high',
   },
+  'qwen-cli': {
+    apiKey: '',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen3-coder-plus',
+  },
+  minimax: {
+    apiKey: '',
+    baseUrl: 'https://api.minimax.chat/v1',
+    model: 'MiniMax-M2.5',
+  },
   'custom:anthropic': {
     apiKey: '',
     baseUrl: 'https://open.bigmodel.cn/api/anthropic',
@@ -293,6 +307,8 @@ const PROFILE_KEYS: ProviderProfileKey[] = [
   'openai-codex',
   'google-gemini-cli',
   'google-antigravity',
+  'qwen-cli',
+  'minimax',
   'custom:anthropic',
   'custom:openai',
   'custom:gemini',
@@ -307,7 +323,9 @@ function isProviderType(value: unknown): value is ProviderType {
     || value === 'ollama'
     || value === 'openai-codex'
     || value === 'google-gemini-cli'
-    || value === 'google-antigravity';
+    || value === 'google-antigravity'
+    || value === 'qwen-cli'
+    || value === 'minimax';
 }
 
 function isCustomProtocol(value: unknown): value is CustomProtocolType {
@@ -356,6 +374,12 @@ function profileKeyToProvider(profileKey: ProviderProfileKey): { provider: Provi
   if (profileKey === 'google-antigravity') {
     return { provider: 'google-antigravity', customProtocol: 'gemini' };
   }
+  if (profileKey === 'qwen-cli') {
+    return { provider: 'qwen-cli', customProtocol: 'openai' };
+  }
+  if (profileKey === 'minimax') {
+    return { provider: 'minimax', customProtocol: 'openai' };
+  }
   if (profileKey === 'ollama') {
     return { provider: 'ollama', customProtocol: 'openai' };
   }
@@ -386,7 +410,13 @@ function normalizeCustomProtocol(value: CustomProtocolType | undefined, fallback
 }
 
 function defaultProtocolForProvider(provider: ProviderType): CustomProtocolType {
-  if (provider === 'openai' || provider === 'ollama' || provider === 'openai-codex') {
+  if (
+    provider === 'openai'
+    || provider === 'ollama'
+    || provider === 'openai-codex'
+    || provider === 'qwen-cli'
+    || provider === 'minimax'
+  ) {
     return 'openai';
   }
   if (provider === 'gemini' || provider === 'google-gemini-cli' || provider === 'google-antigravity') {
@@ -1331,6 +1361,8 @@ export class ConfigStore {
     const useOpenAI =
       projectedConfig.provider === 'openai' ||
       projectedConfig.provider === 'openai-codex' ||
+      projectedConfig.provider === 'qwen-cli' ||
+      projectedConfig.provider === 'minimax' ||
       projectedConfig.provider === 'ollama' ||
       (projectedConfig.provider === 'custom' && projectedConfig.customProtocol === 'openai');
     const useGemini =

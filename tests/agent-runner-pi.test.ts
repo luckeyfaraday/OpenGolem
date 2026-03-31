@@ -44,6 +44,13 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
     expect(agentRunnerContent).not.toContain('systemPromptOverride');
   });
 
+  it('registers built-in web tools alongside MCP custom tools', () => {
+    expect(agentRunnerContent).toContain("name: 'webSearch'");
+    expect(agentRunnerContent).toContain("name: 'webFetch'");
+    expect(agentRunnerContent).toContain('const builtInCustomTools = buildWebCustomTools();');
+    expect(agentRunnerContent).toContain('const customTools = [...builtInCustomTools, ...mcpCustomTools];');
+  });
+
   it('nudges the model to proceed with reasonable assumptions', () => {
     expect(agentRunnerContent).toContain('proceed immediately with reasonable assumptions');
     expect(agentRunnerContent).toContain('within two days');

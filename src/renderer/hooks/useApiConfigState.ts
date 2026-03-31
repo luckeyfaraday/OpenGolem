@@ -79,6 +79,8 @@ const PROFILE_KEYS: ProviderProfileKey[] = [
   'openai-codex',
   'google-gemini-cli',
   'google-antigravity',
+  'qwen-cli',
+  'minimax',
   'custom:anthropic',
   'custom:openai',
   'custom:gemini',
@@ -88,6 +90,7 @@ const OAUTH_PROVIDER_IDS = [
   'openai-codex',
   'google-gemini-cli',
   'google-antigravity',
+  'qwen-cli',
 ] as const satisfies ProviderType[];
 
 function isOAuthProvider(provider: ProviderType): provider is (typeof OAUTH_PROVIDER_IDS)[number] {
@@ -108,7 +111,9 @@ function isProviderType(value: unknown): value is ProviderType {
     value === 'ollama' ||
     value === 'openai-codex' ||
     value === 'google-gemini-cli' ||
-    value === 'google-antigravity'
+    value === 'google-antigravity' ||
+    value === 'qwen-cli' ||
+    value === 'minimax'
   );
 }
 
@@ -147,6 +152,12 @@ export function profileKeyToProvider(profileKey: ProviderProfileKey): {
   }
   if (profileKey === 'google-antigravity') {
     return { provider: 'google-antigravity', customProtocol: 'gemini' };
+  }
+  if (profileKey === 'qwen-cli') {
+    return { provider: 'qwen-cli', customProtocol: 'openai' };
+  }
+  if (profileKey === 'minimax') {
+    return { provider: 'minimax', customProtocol: 'openai' };
   }
   if (profileKey === 'custom:openai') {
     return { provider: 'custom', customProtocol: 'openai' };

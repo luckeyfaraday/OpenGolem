@@ -135,6 +135,8 @@ function isOpenAICompatible(input: DiagnosticInput): boolean {
   return (
     input.provider === 'openai' ||
     input.provider === 'openai-codex' ||
+    input.provider === 'qwen-cli' ||
+    input.provider === 'minimax' ||
     input.provider === 'ollama' ||
     input.provider === 'openrouter' ||
     (input.provider === 'custom' && input.customProtocol === 'openai')

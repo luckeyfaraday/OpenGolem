@@ -99,6 +99,9 @@ export const MessageCard = memo(function MessageCard({ message, isStreaming }: M
     }
   };
 
+  const hasUsage = Boolean(message.tokenUsage && (message.tokenUsage.input > 0 || message.tokenUsage.output > 0));
+  const hasExecutionTime = typeof message.executionTimeMs === 'number' && Number.isFinite(message.executionTimeMs);
+
   return (
     <div className="animate-fade-in">
       {isUser ? (
@@ -149,25 +152,40 @@ export const MessageCard = memo(function MessageCard({ message, isStreaming }: M
       ) : (
         // Assistant message — no bubble, direct content (Claude style)
         <div className="space-y-1.5">
-          {contentBlocks.map((block, index) => {
-            // Skip tool_result blocks that are merged into their tool_use card
-            if (
-              block.type === 'tool_result' &&
-              mergedResultIds.has((block as ToolResultContent).toolUseId)
-            ) {
-              return null;
-            }
-            return (
-              <ContentBlockView
-                key={(block as any).id || `block-${block.type}-${index}`}
-                block={block}
-                isUser={isUser}
-                isStreaming={isStreaming}
-                allBlocks={contentBlocks}
-                message={message}
-              />
-            );
-          })}
+          <div className="space-y-1.5">
+            {contentBlocks.map((block, index) => {
+              // Skip tool_result blocks that are merged into their tool_use card
+              if (
+                block.type === 'tool_result' &&
+                mergedResultIds.has((block as ToolResultContent).toolUseId)
+              ) {
+                return null;
+              }
+              return (
+                <ContentBlockView
+                  key={(block as any).id || `block-${block.type}-${index}`}
+                  block={block}
+                  isUser={isUser}
+                  isStreaming={isStreaming}
+                  allBlocks={contentBlocks}
+                  message={message}
+                />
+              );
+            })}
+          </div>
+          {(hasUsage || hasExecutionTime) && !isStreaming && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-muted/80">
+              {hasUsage && message.tokenUsage && (
+                <span>
+                  {t('context.inputTokens')} {formatTokenCount(message.tokenUsage.input)} · {t('context.outputTokens')}{' '}
+                  {formatTokenCount(message.tokenUsage.output)}
+                </span>
+              )}
+              {hasExecutionTime && (
+                <span>{t('messageCard.executionTime', { time: formatExecutionTime(message.executionTimeMs!) })}</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1084,6 +1102,20 @@ const ToolResultBlock = memo(function ToolResultBlock({
 });
 // Render **bold** in thinking preview text — only handles double-asterisk bold
 // to avoid false positives with single * in math/code (e.g. "2 * 3").
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function formatExecutionTime(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60000);
+  const seconds = ((ms % 60000) / 1000).toFixed(0);
+  return `${minutes}m ${seconds}s`;
+}
+
 function renderThinkingPreview(raw: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   const regex = /\*\*(.+?)\*\*/g;

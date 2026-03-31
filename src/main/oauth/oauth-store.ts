@@ -7,6 +7,7 @@ export const OAUTH_PROVIDER_IDS = [
   'openai-codex',
   'google-gemini-cli',
   'google-antigravity',
+  'qwen-cli',
 ] as const;
 
 export type OAuthProviderId = typeof OAUTH_PROVIDER_IDS[number];

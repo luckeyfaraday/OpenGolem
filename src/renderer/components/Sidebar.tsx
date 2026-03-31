@@ -14,6 +14,7 @@ import {
   Plus,
   ListChecks,
   Check,
+  Clock3,
 } from 'lucide-react';
 import type { Session } from '../types';
 
@@ -40,6 +41,7 @@ export function Sidebar() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const setSettingsTab = useAppStore((s) => s.setSettingsTab);
   const { deleteSession, batchDeleteSessions, getSessionMessages, getSessionTraceSteps, isElectron } = useIPC();
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -197,6 +199,11 @@ export function Sidebar() {
     deleteSession(sessionId);
   };
 
+  const handleOpenSettings = useCallback((tab: string | null = null) => {
+    setSettingsTab(tab);
+    setShowSettings(true);
+  }, [setSettingsTab, setShowSettings]);
+
   const toggleTheme = () => {
     const next = settings.theme === 'dark' ? 'light' : settings.theme === 'light' ? 'system' : 'dark';
     updateSettings({ theme: next });
@@ -226,6 +233,13 @@ export function Sidebar() {
           >
             <Plus className="w-4 h-4" />
           </button>
+          <button
+            onClick={() => handleOpenSettings('schedule')}
+            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
+            title={t('settings.schedule')}
+          >
+            <Clock3 className="w-4 h-4" />
+          </button>
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
@@ -247,7 +261,7 @@ export function Sidebar() {
             {themeIcon}
           </button>
           <button
-            onClick={() => setShowSettings(true)}
+            onClick={() => handleOpenSettings()}
             className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary relative"
             title={t('sidebar.settings')}
           >
@@ -292,6 +306,14 @@ export function Sidebar() {
         >
           <Plus className="w-4 h-4 text-text-secondary flex-shrink-0" />
           <span className="text-[13px] font-medium">{t('sidebar.newTask')}</span>
+        </button>
+
+        <button
+          onClick={() => handleOpenSettings('schedule')}
+          className="mt-2 w-full flex items-center gap-2 rounded-xl border border-border-subtle bg-surface/60 px-3 py-2 text-left text-text-primary hover:bg-surface-hover transition-colors"
+        >
+          <Clock3 className="w-4 h-4 text-text-secondary flex-shrink-0" />
+          <span className="text-[13px] font-medium">{t('settings.schedule')}</span>
         </button>
 
         {sessions.length > 0 && (
@@ -460,7 +482,7 @@ export function Sidebar() {
       <div className="px-3 py-3 border-t border-border-muted">
         <div className="flex items-center gap-2 rounded-2xl bg-background/50 px-3 py-2.5">
           <button
-            onClick={() => setShowSettings(true)}
+            onClick={() => handleOpenSettings()}
             className="flex-1 min-w-0 flex items-center gap-2 text-left text-text-secondary hover:text-text-primary transition-colors"
           >
             <Settings className="w-4 h-4 flex-shrink-0" />

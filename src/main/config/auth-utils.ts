@@ -1,4 +1,3 @@
-import type { AppConfig } from './config-store';
 import { isLoopbackBaseUrl as sharedIsLoopbackBaseUrl } from '../../shared/network/loopback';
 import { normalizeOllamaBaseUrl as sharedNormalizeOllamaBaseUrl } from '../../shared/ollama-base-url';
 
@@ -10,7 +9,14 @@ export const OPENAI_PLATFORM_BASE_URL = 'https://api.openai.com/v1';
 export const LOCAL_OPENAI_PLACEHOLDER_KEY = 'sk-openai-local-proxy';
 export const OLLAMA_PLACEHOLDER_KEY = 'sk-ollama-local-proxy';
 
-type OpenAIConfigLike = Pick<AppConfig, 'provider' | 'customProtocol' | 'apiKey' | 'baseUrl'>;
+type ProviderConfigLike = {
+  provider: string;
+  customProtocol?: string;
+  apiKey?: string;
+  baseUrl?: string;
+};
+
+type OpenAIConfigLike = ProviderConfigLike;
 
 export interface ResolvedOpenAICredentials {
   apiKey: string;
@@ -26,7 +32,7 @@ export function isLikelyOAuthAccessToken(token: string | undefined | null): bool
   return !API_KEY_PREFIX_RE.test(value);
 }
 
-export function shouldUseAnthropicAuthToken(config: Pick<AppConfig, 'provider' | 'customProtocol' | 'apiKey'>): boolean {
+export function shouldUseAnthropicAuthToken(config: Pick<ProviderConfigLike, 'provider' | 'customProtocol' | 'apiKey'>): boolean {
   if (config.provider === 'openrouter') {
     return true;
   }
@@ -36,9 +42,11 @@ export function shouldUseAnthropicAuthToken(config: Pick<AppConfig, 'provider' |
   return isLikelyOAuthAccessToken(config.apiKey);
 }
 
-export function isOpenAIProvider(config: Pick<AppConfig, 'provider' | 'customProtocol'>): boolean {
+export function isOpenAIProvider(config: Pick<ProviderConfigLike, 'provider' | 'customProtocol'>): boolean {
   return config.provider === 'openai'
     || config.provider === 'ollama'
+    || config.provider === 'qwen-cli'
+    || config.provider === 'minimax'
     || (config.provider === 'custom' && config.customProtocol === 'openai');
 }
 
@@ -165,7 +173,7 @@ export function resolveOpenAICredentials(
 }
 
 export function shouldAllowEmptyOllamaApiKey(
-  config: Pick<AppConfig, 'provider' | 'customProtocol' | 'baseUrl'>
+  config: Pick<ProviderConfigLike, 'provider' | 'customProtocol' | 'baseUrl'>
 ): boolean {
   return config.provider === 'ollama';
 }
@@ -188,7 +196,7 @@ export function isLoopbackBaseUrl(baseUrl: string | undefined): boolean {
 }
 
 export function shouldAllowEmptyAnthropicApiKey(
-  config: Pick<AppConfig, 'provider' | 'customProtocol' | 'baseUrl'>
+  config: Pick<ProviderConfigLike, 'provider' | 'customProtocol' | 'baseUrl'>
 ): boolean {
   return config.provider === 'custom'
     && (config.customProtocol ?? 'anthropic') === 'anthropic'
@@ -196,7 +204,7 @@ export function shouldAllowEmptyAnthropicApiKey(
 }
 
 export function shouldAllowEmptyOpenAIApiKey(
-  config: Pick<AppConfig, 'provider' | 'customProtocol' | 'baseUrl'>
+  config: Pick<ProviderConfigLike, 'provider' | 'customProtocol' | 'baseUrl'>
 ): boolean {
   return config.provider === 'custom'
     && config.customProtocol === 'openai'
@@ -204,7 +212,7 @@ export function shouldAllowEmptyOpenAIApiKey(
 }
 
 export function isOllamaLegacyCustomOpenAIConfig(
-  config: Pick<AppConfig, 'provider' | 'customProtocol' | 'baseUrl'>
+  config: Pick<ProviderConfigLike, 'provider' | 'customProtocol' | 'baseUrl'>
 ): boolean {
   if (!(config.provider === 'custom' && (config.customProtocol ?? 'anthropic') === 'openai')) {
     return false;
@@ -224,7 +232,7 @@ export function isOllamaLegacyCustomOpenAIConfig(
 }
 
 export function shouldAllowEmptyGeminiApiKey(
-  config: Pick<AppConfig, 'provider' | 'customProtocol' | 'baseUrl'>
+  config: Pick<ProviderConfigLike, 'provider' | 'customProtocol' | 'baseUrl'>
 ): boolean {
   return config.provider === 'custom'
     && (config.customProtocol ?? 'anthropic') === 'gemini'

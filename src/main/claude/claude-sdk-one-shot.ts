@@ -29,7 +29,7 @@ const PROBE_ACK = 'sdk_probe_ok';
 const LOCAL_ANTHROPIC_PLACEHOLDER_KEY = 'sk-ant-local-proxy';
 const LOCAL_GEMINI_PLACEHOLDER_KEY = 'sk-gemini-local-proxy';
 
-function resolveCustomProtocol(provider: AppConfig['provider'], customProtocol?: CustomProtocolType): CustomProtocolType {
+function resolveCustomProtocol(provider: string, customProtocol?: string): CustomProtocolType {
   if (provider === 'custom') {
     if (customProtocol === 'openai' || customProtocol === 'gemini') {
       return customProtocol;
@@ -39,6 +39,8 @@ function resolveCustomProtocol(provider: AppConfig['provider'], customProtocol?:
   if (provider === 'ollama') return 'openai';
   if (provider === 'openai') return 'openai';
   if (provider === 'openai-codex') return 'openai';
+  if (provider === 'qwen-cli') return 'openai';
+  if (provider === 'minimax') return 'openai';
   if (provider === 'openrouter') return 'openai';
   if (provider === 'gemini' || provider === 'google-gemini-cli' || provider === 'google-antigravity') return 'gemini';
   return 'anthropic';
@@ -65,7 +67,12 @@ async function resolveProbeApiKey(
     return candidateApiKey;
   }
 
-  if (input.provider === 'openai-codex' || input.provider === 'google-gemini-cli' || input.provider === 'google-antigravity') {
+  if (
+    input.provider === 'openai-codex'
+    || input.provider === 'google-gemini-cli'
+    || input.provider === 'google-antigravity'
+    || input.provider === 'qwen-cli'
+  ) {
     return resolveConfiguredApiKey({ provider: input.provider, apiKey: config.apiKey || '' });
   }
 
@@ -78,7 +85,12 @@ async function resolveProbeApiKey(
     })?.apiKey || '';
   }
 
-  if (input.provider === 'openai' || input.provider === 'openrouter' || (input.provider === 'custom' && resolvedCustomProtocol === 'openai')) {
+  if (
+    input.provider === 'openai'
+    || input.provider === 'openrouter'
+    || input.provider === 'minimax'
+    || (input.provider === 'custom' && resolvedCustomProtocol === 'openai')
+  ) {
     return resolveOpenAICredentials({
       provider: input.provider,
       customProtocol: resolvedCustomProtocol,
@@ -127,7 +139,7 @@ async function buildProbeConfig(input: ApiTestInput, config: AppConfig): Promise
   );
   return {
     ...config,
-    provider: input.provider,
+    provider: input.provider as AppConfig['provider'],
     customProtocol: resolvedCustomProtocol,
     apiKey: effectiveApiKey,
     baseUrl: effectiveBaseUrl,

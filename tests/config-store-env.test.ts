@@ -43,6 +43,9 @@ describe('ConfigStore applyToEnv', () => {
     COWORK_WORKDIR: process.env.COWORK_WORKDIR,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_MODEL: process.env.OPENAI_MODEL,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
   };
@@ -51,6 +54,9 @@ describe('ConfigStore applyToEnv', () => {
     delete process.env.COWORK_WORKDIR;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.ANTHROPIC_BASE_URL;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
+    delete process.env.OPENAI_MODEL;
     delete process.env.GEMINI_API_KEY;
     delete process.env.GEMINI_BASE_URL;
   });
@@ -70,6 +76,21 @@ describe('ConfigStore applyToEnv', () => {
       delete process.env.ANTHROPIC_BASE_URL;
     } else {
       process.env.ANTHROPIC_BASE_URL = originalEnv.ANTHROPIC_BASE_URL;
+    }
+    if (originalEnv.OPENAI_API_KEY === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalEnv.OPENAI_API_KEY;
+    }
+    if (originalEnv.OPENAI_BASE_URL === undefined) {
+      delete process.env.OPENAI_BASE_URL;
+    } else {
+      process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL;
+    }
+    if (originalEnv.OPENAI_MODEL === undefined) {
+      delete process.env.OPENAI_MODEL;
+    } else {
+      process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL;
     }
     if (originalEnv.GEMINI_API_KEY === undefined) {
       delete process.env.GEMINI_API_KEY;
@@ -148,6 +169,23 @@ describe('ConfigStore applyToEnv', () => {
     expect(process.env.OPENAI_API_KEY).toBe('sk-ollama-local-proxy');
     expect(process.env.OPENAI_BASE_URL).toBe('https://ollama.example.internal/proxy/v1');
     expect(process.env.OPENAI_MODEL).toBe('qwen3.5:0.8b');
+  });
+
+  it('exports minimax as an openai-compatible provider', () => {
+    const store = new ConfigStore();
+
+    store.update({
+      provider: 'minimax',
+      customProtocol: 'openai',
+      apiKey: 'minimax-test-key',
+      baseUrl: 'https://api.minimax.chat/v1/',
+      model: 'MiniMax-M2.5',
+    });
+    store.applyToEnv();
+
+    expect(process.env.OPENAI_API_KEY).toBe('minimax-test-key');
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.minimax.chat/v1');
+    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.5');
   });
 
   it('normalizes trailing /v1 for anthropic-compatible base url when applying env', () => {
