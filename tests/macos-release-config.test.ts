@@ -26,8 +26,9 @@ describe('macOS release config', () => {
     const source = fs.readFileSync(workflowPath, 'utf8');
 
     expect(source).toContain('name: macOS Release');
-    expect(source).toContain('runner: macos-13');
+    expect(source).toContain('runner: macos-15-intel');
     expect(source).toContain('runner: macos-14');
+    expect(source).not.toContain('runner: macos-13');
     expect(source).toContain('npm run build:mac -- --${{ matrix.arch }} --publish never');
     expect(source).toContain('Disable signing when Apple certificate secrets are unavailable');
     expect(source).toContain('CSC_IDENTITY_AUTO_DISCOVERY=false');
