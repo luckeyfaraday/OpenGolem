@@ -2,7 +2,7 @@
  * Tunnel Manager - Manages ngrok/cloudflare tunnels for remote access
  */
 
-import ngrok from 'ngrok';
+import { createRequire } from 'module';
 import { log, logError } from '../utils/logger';
 import { remoteConfigStore } from './remote-config-store';
 
@@ -18,10 +18,12 @@ export type { TunnelConfig } from './types';
 
 class TunnelManager {
   private static instance: TunnelManager;
+  private static readonly require = createRequire(import.meta.url);
   private currentUrl: string | null = null;
   private isConnected: boolean = false;
   private provider: 'ngrok' | 'cloudflare' | 'none' = 'none';
   private statusCallback: ((status: TunnelStatus) => void) | null = null;
+  private ngrokModule: NgrokModule | null = null;
 
   private constructor() {}
 
@@ -30,6 +32,22 @@ class TunnelManager {
       TunnelManager.instance = new TunnelManager();
     }
     return TunnelManager.instance;
+  }
+
+  private loadNgrok(): NgrokModule {
+    if (this.ngrokModule) {
+      return this.ngrokModule;
+    }
+
+    try {
+      const loaded = TunnelManager.require('ngrok') as NgrokModule;
+      this.ngrokModule = loaded;
+      return loaded;
+    } catch (error) {
+      throw new Error(
+        'Ngrok support is unavailable because the optional "ngrok" package is not installed.'
+      );
+    }
   }
 
   /**
@@ -82,6 +100,7 @@ class TunnelManager {
     }
 
     log('[TunnelManager] Starting ngrok tunnel...');
+    const ngrok = this.loadNgrok();
 
     try {
       // Set authtoken
@@ -90,7 +109,7 @@ class TunnelManager {
       // Connect
       const url = await ngrok.connect({
         addr: localPort,
-        region: (config.region as ngrok.Ngrok.Region) || 'us',
+        region: config.region || 'us',
         onStatusChange: (status) => {
           log('[TunnelManager] Ngrok status:', status);
           if (status === 'closed') {
@@ -121,6 +140,7 @@ class TunnelManager {
     if (this.provider === 'ngrok' && this.isConnected) {
       log('[TunnelManager] Stopping ngrok tunnel...');
       try {
+        const ngrok = this.loadNgrok();
         await ngrok.disconnect();
         await ngrok.kill();
       } catch (error) {
@@ -169,3 +189,14 @@ class TunnelManager {
 }
 
 export const tunnelManager = TunnelManager.getInstance();
+
+type NgrokModule = {
+  authtoken(token: string): Promise<void>;
+  connect(options: {
+    addr: number;
+    region?: string;
+    onStatusChange?: (status: string) => void;
+  }): Promise<string>;
+  disconnect(): Promise<void>;
+  kill(): Promise<void>;
+};
