@@ -29,13 +29,13 @@ It builds:
 
 These secrets enable code signing and notarization:
 
-- `APPLE_CERTIFICATE_P12`
+- `APPLE_CERTIFICATE_P12` (base64-encoded `.p12` contents)
 - `APPLE_CERTIFICATE_PASSWORD`
 - `APPLE_ID`
 - `APPLE_ID_PASSWORD`
 - `APPLE_TEAM_ID`
 
-If the Apple ID secrets are missing, the notarization hook skips notarization. If the certificate secrets are missing, electron-builder will not be able to sign the app for release.
+If the Apple ID secrets are missing, the notarization hook skips notarization. If the certificate secrets are missing, the workflow now disables signing explicitly and still produces an unsigned macOS build instead of failing during certificate discovery.
 
 ## Notes
 

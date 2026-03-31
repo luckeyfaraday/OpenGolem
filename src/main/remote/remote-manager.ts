@@ -35,6 +35,7 @@ export interface AgentExecutor {
     cwd?: string
   ): Promise<void>;
   stopSession(sessionId: string): Promise<void>;
+  getMessages?(sessionId: string): Promise<Message[]> | Message[];
   validateWorkingDirectory?(cwd: string): Promise<string | null> | string | null;
 }
 
@@ -149,6 +150,18 @@ export class RemoteManager extends EventEmitter {
     if (executor.validateWorkingDirectory) {
       this.messageRouter.setWorkingDirectoryValidator(executor.validateWorkingDirectory);
     }
+
+    this.messageRouter.setSessionControlCallbacks({
+      stopSession: async (sessionId) => {
+        await executor.stopSession(sessionId);
+      },
+      resetSession: async (remoteSessionId, actualSessionId) => {
+        this.forgetRemoteSessionMapping(remoteSessionId, actualSessionId);
+      },
+      getSessionMessages: async (sessionId) => {
+        return executor.getMessages ? await executor.getMessages(sessionId) : [];
+      },
+    });
     
     log('[RemoteManager] Agent executor set');
   }
@@ -194,6 +207,9 @@ export class RemoteManager extends EventEmitter {
       
       // Set up gateway event handlers
       this.setupGatewayEvents();
+      this.messageRouter.setTypingIndicatorCallback(async (channelType, channelId) => {
+        await this.gateway?.sendTypingIndicator(channelType, channelId);
+      });
       
       // Set up message interceptor for interaction responses
       this.gateway.setMessageInterceptor((message) => {
@@ -939,14 +955,19 @@ export class RemoteManager extends EventEmitter {
     const sessionId = this.sessionIdMapping.get(actualSessionId);
     this.sessionIdMapping.delete(actualSessionId);
     if (sessionId) {
-      for (const [key, value] of this.reverseSessionIdMapping) {
-        if (value === actualSessionId) {
-          this.reverseSessionIdMapping.delete(key);
-          break;
-        }
-      }
-      this.sessionChannelMapping.delete(sessionId);
+      this.forgetRemoteSessionMapping(sessionId, actualSessionId);
     }
+  }
+
+  private forgetRemoteSessionMapping(remoteSessionId: string, actualSessionId?: string): void {
+    const resolvedActualSessionId = actualSessionId || this.reverseSessionIdMapping.get(remoteSessionId);
+    if (resolvedActualSessionId) {
+      this.sessionIdMapping.delete(resolvedActualSessionId);
+    }
+
+    this.remoteSessionIds.delete(remoteSessionId);
+    this.reverseSessionIdMapping.delete(remoteSessionId);
+    this.sessionChannelMapping.delete(remoteSessionId);
   }
   
   // ============================================================================
@@ -1050,6 +1071,9 @@ export class RemoteManager extends EventEmitter {
     
     log('[RemoteManager] Executing agent for session:', sessionId);
     log('[RemoteManager] Working directory:', workingDirectory || '(default)');
+
+    const routerMapping = this.messageRouter?.getSessionMappingForRemoteSessionId(sessionId);
+    const requestedTitle = routerMapping?.pendingTitle?.trim() || buildRemoteSessionTitle(prompt);
     
     // Check if this is a new remote session (check reverse mapping which is persisted)
     const isNewSession = !this.reverseSessionIdMapping.has(sessionId);
@@ -1057,7 +1081,7 @@ export class RemoteManager extends EventEmitter {
     if (isNewSession) {
       // Create new session with working directory
       const newSession = await this.agentExecutor.startSession(
-        buildRemoteSessionTitle(prompt),
+        requestedTitle,
         prompt,
         workingDirectory
       );
@@ -1074,10 +1098,12 @@ export class RemoteManager extends EventEmitter {
       
       // Also update the session mapping in MessageRouter with the actual session ID
       // so it persists to disk and survives restarts
-      const routerMapping = this.messageRouter?.getSessionMappingForRemoteSessionId(sessionId);
       if (routerMapping) {
-        routerMapping.actualSessionId = newSession.id;
-        this.messageRouter?.persistSessions();
+        this.messageRouter?.updateSessionMetadata(sessionId, {
+          actualSessionId: newSession.id,
+          title: newSession.title,
+          pendingTitle: undefined,
+        });
       }
       
       log('[RemoteManager] Created new session:', newSession.id, 'for remote:', sessionId, 'cwd:', workingDirectory);

@@ -141,6 +141,21 @@ export class TelegramChannel extends ChannelBase {
     }
   }
 
+  async sendTypingIndicator(channelId: string): Promise<void> {
+    if (!this._connected) {
+      return;
+    }
+
+    try {
+      await this.api.sendChatAction({
+        chat_id: channelId,
+        action: 'typing',
+      });
+    } catch (error) {
+      logWarn('[Telegram] Failed to send typing indicator:', error);
+    }
+  }
+
   /**
    * Get DM policy for this channel
    */

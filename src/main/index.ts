@@ -929,6 +929,10 @@ app
         if (!sessionManager) throw new Error('Session manager not initialized');
         await sessionManager.stopSession(sessionId);
       },
+      getMessages: async (sessionId) => {
+        if (!sessionManager) throw new Error('Session manager not initialized');
+        return sessionManager.getMessages(sessionId);
+      },
       validateWorkingDirectory: async (cwd) => {
         const unsupportedReason = getWorkspacePathUnsupportedReason(cwd);
         if (unsupportedReason) {

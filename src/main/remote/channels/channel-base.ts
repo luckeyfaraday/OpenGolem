@@ -48,6 +48,14 @@ export abstract class ChannelBase extends EventEmitter implements IChannel {
    * Subclasses must implement this method
    */
   abstract send(response: RemoteResponse): Promise<void>;
+
+  /**
+   * Send a typing indicator if supported by the platform.
+   * Base implementation is a no-op so unsupported channels do not need extra code.
+   */
+  async sendTypingIndicator(_channelId: string): Promise<void> {
+    return;
+  }
   
   /**
    * Set message handler

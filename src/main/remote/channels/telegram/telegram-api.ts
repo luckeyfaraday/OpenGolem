@@ -62,6 +62,39 @@ export class TelegramAPI {
   }
 
   /**
+   * Send a chat action like "typing"
+   */
+  async sendChatAction(params: {
+    chat_id: number | string;
+    action:
+      | 'typing'
+      | 'upload_photo'
+      | 'record_video'
+      | 'upload_video'
+      | 'record_voice'
+      | 'upload_voice'
+      | 'upload_document'
+      | 'choose_sticker'
+      | 'find_location'
+      | 'record_video_note'
+      | 'upload_video_note';
+  }): Promise<any> {
+    const url = `${this.baseUrl}/sendChatAction`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Telegram sendChatAction error: ${response.status} ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  /**
    * Edit a message
    */
   async editMessageText(params: {

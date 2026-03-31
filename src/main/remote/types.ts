@@ -382,6 +382,15 @@ export interface RemoteSessionMapping {
   /** Actual local session ID (from agent executor). Persisted so sessions survive restart. */
   actualSessionId?: string;
 
+  /** User-visible title for the underlying local session */
+  title?: string;
+
+  /** Pending title to apply when the next local session is created */
+  pendingTitle?: string;
+
+  /** Whether to prepend a session banner on the next response */
+  announceSession?: boolean;
+
   /** Working directory for this session */
   workingDirectory?: string;
   
@@ -433,6 +442,9 @@ export interface IChannel {
   
   /** Send a response to the channel */
   send(response: RemoteResponse): Promise<void>;
+
+  /** Send a typing indicator when the channel supports it */
+  sendTypingIndicator(channelId: string): Promise<void>;
   
   /** Set message handler */
   onMessage(handler: (message: RemoteMessage) => void): void;

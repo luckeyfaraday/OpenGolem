@@ -233,6 +233,19 @@ export class RemoteGateway extends EventEmitter {
       pendingPairings: this.pairingRequests.size,
     };
   }
+
+  async sendTypingIndicator(channelType: ChannelType, channelId: string): Promise<void> {
+    const channel = this.channels.get(channelType);
+    if (!channel) {
+      return;
+    }
+
+    try {
+      await channel.sendTypingIndicator(channelId);
+    } catch (error) {
+      logError('[Gateway] Failed to send typing indicator:', error);
+    }
+  }
   
   // Message interceptor for handling interaction responses
   private messageInterceptor?: (message: RemoteMessage) => boolean;
