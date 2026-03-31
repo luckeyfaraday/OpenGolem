@@ -1,0 +1,93 @@
+name: macOS Release
+
+on:
+  push:
+    tags:
+      - '*'
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-release-${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x64
+          - runner: macos-14
+            arch: arm64
+
+    runs-on: ${{ matrix.runner }}
+    env:
+      RELEASE_REF: ${{ inputs.ref || github.event.release.tag_name || github.ref_name }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+      CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.event.release.tag_name || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install macOS GUI tooling
+        run: brew install cliclick
+
+      - name: Sync package version from tag
+        run: npm run build:version-from-ref -- "$RELEASE_REF"
+
+      - name: Build macOS installer
+        run: npm run build:mac -- --${{ matrix.arch }} --publish never
+        env:
+          CI: true
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-installer-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+
+      - name: Attach assets to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: false
+          files: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
