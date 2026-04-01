@@ -6,6 +6,10 @@ const rootPackageJsonPath = path.resolve(process.cwd(), 'package.json');
 const vendoredPiPackageJsonPath = path.resolve(process.cwd(), 'packages/pi-coding-agent/package.json');
 const vendoredPiSourcePath = path.resolve(process.cwd(), 'packages/pi-coding-agent/src/core/agent-session.ts');
 const vendoredPiTsconfigPath = path.resolve(process.cwd(), 'packages/pi-coding-agent/tsconfig.build.json');
+const vendoredPiExportHtmlVendorPaths = [
+  path.resolve(process.cwd(), 'packages/pi-coding-agent/src/core/export-html/vendor/highlight.min.js'),
+  path.resolve(process.cwd(), 'packages/pi-coding-agent/src/core/export-html/vendor/marked.min.js'),
+];
 const rootTsconfigPath = path.resolve(process.cwd(), 'tsconfig.json');
 const viteConfigPath = path.resolve(process.cwd(), 'vite.config.ts');
 
@@ -35,6 +39,9 @@ describe('pi vendoring', () => {
   it('includes source-level files and build scaffolding for the vendored package', () => {
     expect(fs.existsSync(vendoredPiSourcePath)).toBe(true);
     expect(fs.existsSync(vendoredPiTsconfigPath)).toBe(true);
+    for (const vendorAssetPath of vendoredPiExportHtmlVendorPaths) {
+      expect(fs.existsSync(vendorAssetPath)).toBe(true);
+    }
 
     const rootPkg = JSON.parse(fs.readFileSync(rootPackageJsonPath, 'utf8')) as {
       scripts?: Record<string, string>;
