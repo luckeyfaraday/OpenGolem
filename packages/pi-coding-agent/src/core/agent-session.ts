@@ -1231,6 +1231,14 @@ export class AgentSession {
 	}
 
 	/**
+	 * Wait for the current agent run and any queued follow-up work to finish.
+	 */
+	async waitForIdle(): Promise<void> {
+		await this.agent.waitForIdle();
+		await this.waitForRetry();
+	}
+
+	/**
 	 * Start a new session, optionally with initial messages and parent tracking.
 	 * Clears all messages and starts a new session.
 	 * Listeners are preserved and will continue receiving events.

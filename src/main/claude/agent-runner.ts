@@ -2041,12 +2041,16 @@ Tool routing:
         }
       });
 
-      // Execute the prompt with activity-based timeout
+      // Execute the prompt with activity-based timeout. For cached sessions we
+      // must wait until pi is fully idle before returning, otherwise the next
+      // queued app-level prompt can hit pi's busy-session guard.
       try {
         resetActivityTimeout();
         try {
           const promptResult = await piSession.prompt(contextualPrompt);
           log('[ClaudeAgentRunner] prompt() returned:', JSON.stringify(promptResult ?? 'void').substring(0, 1000));
+          await piSession.waitForIdle();
+          log('[ClaudeAgentRunner] waitForIdle() completed');
         } finally {
           if (activityTimeoutId) clearTimeout(activityTimeoutId);
           if (ollamaColdStartTimerId) clearTimeout(ollamaColdStartTimerId);

@@ -59,6 +59,11 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
     expect(agentRunnerContent).toContain('Transient upstream failure detected, waiting for automatic retry');
   });
 
+  it('waits for cached pi sessions to become fully idle before completing the turn', () => {
+    expect(agentRunnerContent).toContain('await piSession.waitForIdle();');
+    expect(agentRunnerContent).toContain("log('[ClaudeAgentRunner] waitForIdle() completed');");
+  });
+
   it('nudges the model to proceed with reasonable assumptions', () => {
     expect(agentRunnerContent).toContain('proceed immediately with reasonable assumptions');
     expect(agentRunnerContent).toContain('within two days');
