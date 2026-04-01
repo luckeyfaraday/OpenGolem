@@ -52,10 +52,14 @@ interface AppState {
   sidebarCollapsed: boolean;
   contextPanelCollapsed: boolean;
   showSettings: boolean;
+  showMemoryPanel: boolean;
+  showTasksPanel: boolean;
+  showPermissionsPanel: boolean;
   settingsTab: string | null;
 
   // Permission
   pendingPermission: PermissionRequest | null;
+  pendingPermissions: PermissionRequest[];
 
   // Sudo password
   pendingSudoPassword: SudoPasswordRequest | null;
@@ -122,9 +126,14 @@ interface AppState {
   setSidebarCollapsed: (collapsed: boolean) => void;
   setContextPanelCollapsed: (collapsed: boolean) => void;
   setShowSettings: (show: boolean) => void;
+  setShowMemoryPanel: (show: boolean) => void;
+  setShowTasksPanel: (show: boolean) => void;
+  setShowPermissionsPanel: (show: boolean) => void;
   setSettingsTab: (tab: string | null) => void;
 
   setPendingPermission: (permission: PermissionRequest | null) => void;
+  addPendingPermission: (permission: PermissionRequest) => void;
+  removePendingPermission: (toolUseId: string) => void;
 
   setPendingSudoPassword: (request: SudoPasswordRequest | null) => void;
 
@@ -200,8 +209,12 @@ export const useAppStore = create<AppState>((set) => ({
   sidebarCollapsed: false,
   contextPanelCollapsed: false,
   showSettings: false,
+  showMemoryPanel: false,
+  showTasksPanel: false,
+  showPermissionsPanel: false,
   settingsTab: null,
   pendingPermission: null,
+  pendingPermissions: [],
   pendingSudoPassword: null,
   settings: defaultSettings,
   appConfig: null,
@@ -594,10 +607,36 @@ export const useAppStore = create<AppState>((set) => ({
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setContextPanelCollapsed: (collapsed) => set({ contextPanelCollapsed: collapsed }),
   setShowSettings: (show) => set({ showSettings: show }),
+  setShowMemoryPanel: (show) => set({ showMemoryPanel: show }),
+  setShowTasksPanel: (show) => set({ showTasksPanel: show }),
+  setShowPermissionsPanel: (show) => set({ showPermissionsPanel: show }),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
 
   // Permission actions
   setPendingPermission: (permission) => set({ pendingPermission: permission }),
+  addPendingPermission: (permission) =>
+    set((state) => {
+      if (state.pendingPermissions.some((entry) => entry.toolUseId === permission.toolUseId)) {
+        return {};
+      }
+      const nextPending = [...state.pendingPermissions, permission];
+      return {
+        pendingPermissions: nextPending,
+        pendingPermission: state.pendingPermission ?? nextPending[0] ?? null,
+      };
+    }),
+  removePendingPermission: (toolUseId) =>
+    set((state) => {
+      const nextPending = state.pendingPermissions.filter((entry) => entry.toolUseId !== toolUseId);
+      const nextCurrent =
+        state.pendingPermission?.toolUseId === toolUseId
+          ? nextPending[0] ?? null
+          : state.pendingPermission;
+      return {
+        pendingPermissions: nextPending,
+        pendingPermission: nextCurrent,
+      };
+    }),
 
   // Sudo password actions
   setPendingSudoPassword: (request) => set({ pendingSudoPassword: request }),
@@ -649,6 +688,9 @@ if (typeof window !== 'undefined') {
     const s = useAppStore.getState();
     return {
       showSettings: !!s.showSettings,
+      showMemoryPanel: !!s.showMemoryPanel,
+      showTasksPanel: !!s.showTasksPanel,
+      showPermissionsPanel: !!s.showPermissionsPanel,
       activeSessionId: s.activeSessionId || null,
       sessionCount: (s.sessions || []).length,
     };
@@ -658,12 +700,36 @@ if (typeof window !== 'undefined') {
     const store = useAppStore.getState();
     if (page === 'welcome') {
       store.setShowSettings(false);
+      store.setShowMemoryPanel(false);
+      store.setShowTasksPanel(false);
+      store.setShowPermissionsPanel(false);
       store.setActiveSession(null);
     } else if (page === 'settings') {
+      store.setShowMemoryPanel(false);
+      store.setShowTasksPanel(false);
+      store.setShowPermissionsPanel(false);
       store.setSettingsTab(tab || 'api');
       store.setShowSettings(true);
+    } else if (page === 'memory') {
+      store.setShowSettings(false);
+      store.setShowTasksPanel(false);
+      store.setShowPermissionsPanel(false);
+      store.setShowMemoryPanel(true);
+    } else if (page === 'tasks') {
+      store.setShowSettings(false);
+      store.setShowMemoryPanel(false);
+      store.setShowPermissionsPanel(false);
+      store.setShowTasksPanel(true);
+    } else if (page === 'permissions') {
+      store.setShowSettings(false);
+      store.setShowMemoryPanel(false);
+      store.setShowTasksPanel(false);
+      store.setShowPermissionsPanel(true);
     } else if (page === 'session' && sessionId) {
       store.setShowSettings(false);
+      store.setShowMemoryPanel(false);
+      store.setShowTasksPanel(false);
+      store.setShowPermissionsPanel(false);
       store.setActiveSession(sessionId);
     }
     return true;

@@ -9,7 +9,9 @@ export async function withRetry<T>(
     maxRetries?: number;
     delayMs?: number;
     backoffMultiplier?: number;
+    maxDelayMs?: number;
     shouldRetry?: (error: Error) => boolean;
+    resolveDelayMs?: (attempt: number, error: Error, defaultDelayMs: number) => number | undefined;
     onRetry?: (attempt: number, error: Error) => void;
   } = {}
 ): Promise<T> {
@@ -17,7 +19,9 @@ export async function withRetry<T>(
     maxRetries = 3,
     delayMs = 1000,
     backoffMultiplier = 2,
+    maxDelayMs = Number.POSITIVE_INFINITY,
     shouldRetry = () => true,
+    resolveDelayMs,
     onRetry,
   } = options;
 
@@ -38,8 +42,16 @@ export async function withRetry<T>(
         onRetry(attempt, lastError);
       }
 
-      logWarn(`[Retry] Attempt ${attempt}/${maxRetries} failed, retrying in ${currentDelay}ms...`);
-      await new Promise(resolve => setTimeout(resolve, currentDelay));
+      const requestedDelay = resolveDelayMs?.(attempt, lastError, currentDelay);
+      const nextDelay = Math.min(
+        maxDelayMs,
+        typeof requestedDelay === 'number' && Number.isFinite(requestedDelay) && requestedDelay >= 0
+          ? requestedDelay
+          : currentDelay
+      );
+
+      logWarn(`[Retry] Attempt ${attempt}/${maxRetries} failed, retrying in ${nextDelay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, nextDelay));
       currentDelay *= backoffMultiplier;
     }
   }

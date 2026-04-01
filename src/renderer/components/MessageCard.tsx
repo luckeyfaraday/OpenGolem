@@ -101,6 +101,7 @@ export const MessageCard = memo(function MessageCard({ message, isStreaming }: M
 
   const hasUsage = Boolean(message.tokenUsage && (message.tokenUsage.input > 0 || message.tokenUsage.output > 0));
   const hasExecutionTime = typeof message.executionTimeMs === 'number' && Number.isFinite(message.executionTimeMs);
+  const hasEstimatedCost = typeof message.estimatedCostUsd === 'number' && Number.isFinite(message.estimatedCostUsd);
 
   return (
     <div className="animate-fade-in">
@@ -173,13 +174,16 @@ export const MessageCard = memo(function MessageCard({ message, isStreaming }: M
               );
             })}
           </div>
-          {(hasUsage || hasExecutionTime) && !isStreaming && (
+          {(hasUsage || hasExecutionTime || hasEstimatedCost) && !isStreaming && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-muted/80">
               {hasUsage && message.tokenUsage && (
                 <span>
                   {t('context.inputTokens')} {formatTokenCount(message.tokenUsage.input)} · {t('context.outputTokens')}{' '}
                   {formatTokenCount(message.tokenUsage.output)}
                 </span>
+              )}
+              {hasEstimatedCost && (
+                <span>Estimated cost {formatEstimatedCost(message.estimatedCostUsd!)}</span>
               )}
               {hasExecutionTime && (
                 <span>{t('messageCard.executionTime', { time: formatExecutionTime(message.executionTimeMs!) })}</span>
@@ -1114,6 +1118,12 @@ function formatExecutionTime(ms: number): string {
   const minutes = Math.floor(ms / 60000);
   const seconds = ((ms % 60000) / 1000).toFixed(0);
   return `${minutes}m ${seconds}s`;
+}
+
+function formatEstimatedCost(costUsd: number): string {
+  if (costUsd < 0.0001) return '<$0.0001';
+  if (costUsd < 0.01) return `$${costUsd.toFixed(4)}`;
+  return `$${costUsd.toFixed(2)}`;
 }
 
 function renderThinkingPreview(raw: string): React.ReactNode[] {

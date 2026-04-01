@@ -25,7 +25,7 @@ export interface DatabaseInstance {
   // Message operations
   messages: {
     create: (message: MessageRow) => void;
-    update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms'>>) => void;
+    update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms' | 'estimated_cost_usd'>>) => void;
     getBySessionId: (sessionId: string) => MessageRow[];
     delete: (id: string) => void;
     deleteBySessionId: (sessionId: string) => void;
@@ -43,6 +43,14 @@ export interface DatabaseInstance {
     update: (id: string, updates: Partial<ScheduledTaskRow>) => void;
     get: (id: string) => ScheduledTaskRow | undefined;
     getAll: () => ScheduledTaskRow[];
+    delete: (id: string) => void;
+  };
+
+  projectTasks: {
+    create: (task: ProjectTaskRow) => void;
+    update: (id: string, updates: Partial<ProjectTaskRow>) => void;
+    get: (id: string) => ProjectTaskRow | undefined;
+    getAll: () => ProjectTaskRow[];
     delete: (id: string) => void;
   };
   
@@ -76,6 +84,7 @@ export interface MessageRow {
   timestamp: number;
   token_usage: string | null; // JSON string
   execution_time_ms: number | null;
+  estimated_cost_usd: number | null;
 }
 
 export interface TraceStepRow {
@@ -107,6 +116,16 @@ export interface ScheduledTaskRow {
   last_run_at: number | null;
   last_run_session_id: string | null;
   last_error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ProjectTaskRow {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  linked_session_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -252,6 +271,7 @@ function initializeSchema(database: Database.Database): void {
   `);
 
   ensureColumn(database, 'messages', 'execution_time_ms', 'execution_time_ms INTEGER');
+  ensureColumn(database, 'messages', 'estimated_cost_usd', 'estimated_cost_usd REAL');
 
   // Create trace steps table
   database.exec(`
@@ -269,6 +289,18 @@ function initializeSchema(database: Database.Database): void {
       timestamp INTEGER NOT NULL,
       duration INTEGER,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    )
+  `);
+
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS project_tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'backlog',
+      linked_session_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     )
   `);
   
@@ -303,6 +335,19 @@ function initializeSchema(database: Database.Database): void {
       created_at INTEGER NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     )
+  `);
+
+  database.exec('DROP TABLE IF EXISTS memory_fts');
+  database.exec(`
+    CREATE VIRTUAL TABLE memory_fts USING fts5(
+      entry_id UNINDEXED,
+      session_id UNINDEXED,
+      content
+    )
+  `);
+  database.exec(`
+    INSERT INTO memory_fts (entry_id, session_id, content)
+    SELECT id, session_id, content FROM memory_entries
   `);
   
   // Create skills table (for future use)
@@ -422,8 +467,8 @@ export function initDatabase(): DatabaseInstance {
   `);
   
   const insertMessage = rawDb.prepare(`
-    INSERT INTO messages (id, session_id, role, content, timestamp, token_usage, execution_time_ms)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, session_id, role, content, timestamp, token_usage, execution_time_ms, estimated_cost_usd)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   
   const getMessagesBySessionStmt = rawDb.prepare(`
@@ -431,7 +476,10 @@ export function initDatabase(): DatabaseInstance {
   `);
   
   const updateMessageStmt = rawDb.prepare(`
-    UPDATE messages SET execution_time_ms = ? WHERE id = ?
+    UPDATE messages SET
+      execution_time_ms = COALESCE(?, execution_time_ms),
+      estimated_cost_usd = COALESCE(?, estimated_cost_usd)
+    WHERE id = ?
   `);
   
   const deleteMessageStmt = rawDb.prepare(`
@@ -464,6 +512,13 @@ export function initDatabase(): DatabaseInstance {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  const insertProjectTask = rawDb.prepare(`
+    INSERT OR REPLACE INTO project_tasks (
+      id, title, description, status, linked_session_id, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
   const getScheduledTaskStmt = rawDb.prepare(`
     SELECT * FROM scheduled_tasks WHERE id = ?
   `);
@@ -474,6 +529,18 @@ export function initDatabase(): DatabaseInstance {
 
   const deleteScheduledTaskStmt = rawDb.prepare(`
     DELETE FROM scheduled_tasks WHERE id = ?
+  `);
+
+  const getProjectTaskStmt = rawDb.prepare(`
+    SELECT * FROM project_tasks WHERE id = ?
+  `);
+
+  const getAllProjectTasksStmt = rawDb.prepare(`
+    SELECT * FROM project_tasks ORDER BY updated_at DESC, created_at DESC
+  `);
+
+  const deleteProjectTaskStmt = rawDb.prepare(`
+    DELETE FROM project_tasks WHERE id = ?
   `);
   
   db = {
@@ -544,13 +611,18 @@ export function initDatabase(): DatabaseInstance {
           message.content,
           message.timestamp,
           message.token_usage,
-          message.execution_time_ms ?? null
+          message.execution_time_ms ?? null,
+          message.estimated_cost_usd ?? null
         );
       },
       
-      update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms'>>) => {
-        if (updates.execution_time_ms !== undefined) {
-          updateMessageStmt.run(updates.execution_time_ms, id);
+      update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms' | 'estimated_cost_usd'>>) => {
+        if (updates.execution_time_ms !== undefined || updates.estimated_cost_usd !== undefined) {
+          updateMessageStmt.run(
+            updates.execution_time_ms ?? null,
+            updates.estimated_cost_usd ?? null,
+            id
+          );
         }
       },
       
@@ -666,6 +738,54 @@ export function initDatabase(): DatabaseInstance {
 
       delete: (id: string) => {
         deleteScheduledTaskStmt.run(id);
+      },
+    },
+
+    projectTasks: {
+      create: (task: ProjectTaskRow) => {
+        insertProjectTask.run(
+          task.id,
+          task.title,
+          task.description,
+          task.status,
+          task.linked_session_id,
+          task.created_at,
+          task.updated_at
+        );
+      },
+
+      update: (id: string, updates: Partial<ProjectTaskRow>) => {
+        const setClauses: string[] = [];
+        const values: unknown[] = [];
+
+        for (const [key, value] of Object.entries(updates)) {
+          if (value !== undefined) {
+            validateIdentifier(key);
+            setClauses.push(`${key} = ?`);
+            values.push(value);
+          }
+        }
+
+        if (setClauses.length === 0) return;
+
+        setClauses.push('updated_at = ?');
+        values.push(Date.now());
+        values.push(id);
+
+        const sql = `UPDATE project_tasks SET ${setClauses.join(', ')} WHERE id = ?`;
+        rawDb.prepare(sql).run(...values);
+      },
+
+      get: (id: string): ProjectTaskRow | undefined => {
+        return getProjectTaskStmt.get(id) as ProjectTaskRow | undefined;
+      },
+
+      getAll: (): ProjectTaskRow[] => {
+        return getAllProjectTasksStmt.all() as ProjectTaskRow[];
+      },
+
+      delete: (id: string) => {
+        deleteProjectTaskStmt.run(id);
       },
     },
     

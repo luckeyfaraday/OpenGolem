@@ -9,6 +9,7 @@ import type {
   IChannel,
   ChannelType,
   RemoteMessage,
+  RemoteQuickAction,
   RemoteResponse,
   RemoteResponseContent,
 } from '../types';
@@ -140,6 +141,34 @@ export abstract class ChannelBase extends EventEmitter implements IChannel {
       return `card: [interactive]`;
     }
     return `type: ${content.type}`;
+  }
+
+  protected withQuickActionHint(content: RemoteResponseContent): RemoteResponseContent {
+    if (!content.quickActions || content.quickActions.length === 0) {
+      return content;
+    }
+
+    const hint = this.buildQuickActionHint(content.quickActions);
+
+    if (content.type === 'text' && content.text) {
+      return {
+        ...content,
+        text: `${content.text}\n\n${hint}`,
+      };
+    }
+
+    if (content.type === 'markdown' && content.markdown) {
+      return {
+        ...content,
+        markdown: `${content.markdown}\n\n${hint}`,
+      };
+    }
+
+    return content;
+  }
+
+  protected buildQuickActionHint(actions: RemoteQuickAction[]): string {
+    return `Quick actions: ${actions.map((action) => action.command).join(' · ')}`;
   }
   
   /**

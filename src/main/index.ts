@@ -19,6 +19,7 @@ import { execFileSync } from 'child_process';
 import { config } from 'dotenv';
 import { initDatabase } from './db/database';
 import { SessionManager } from './session/session-manager';
+import { MemoryManager } from './memory/memory-manager';
 import { SkillsManager } from './skills/skills-manager';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
@@ -56,6 +57,7 @@ import {
   type ScheduledTaskUpdateInput,
 } from './schedule/scheduled-task-manager';
 import { createScheduledTaskStore } from './schedule/scheduled-task-store';
+import { createProjectTaskStore, type ProjectTaskStore } from './tasks/project-task-store';
 import {
   buildScheduledTaskFallbackTitle,
   buildScheduledTaskTitle,
@@ -69,6 +71,7 @@ import {
 } from '../shared/local-file-path';
 import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
+import { permissionRulesStore } from './permissions/permission-rules-store';
 import {
   log,
   logWarn,
@@ -135,9 +138,11 @@ if (process.platform === 'win32') {
 
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager | null = null;
+let memoryManager: MemoryManager | null = null;
 let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
+let projectTaskStore: ProjectTaskStore | null = null;
 
 function sanitizeDiagnosticBaseUrl(value: string | undefined): string | null {
   if (!value) {
@@ -793,6 +798,7 @@ app
 
     // Initialize database
     const db = initDatabase();
+    memoryManager = new MemoryManager(db.raw);
 
     pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
 
@@ -868,6 +874,7 @@ app
     startNavServer(() => mainWindow);
 
     const scheduledTaskStore = createScheduledTaskStore(db);
+    projectTaskStore = createProjectTaskStore(db);
     scheduledTaskManager = new ScheduledTaskManager({
       store: scheduledTaskStore,
       executeTask: async (task) => {
@@ -929,9 +936,34 @@ app
         if (!sessionManager) throw new Error('Session manager not initialized');
         await sessionManager.stopSession(sessionId);
       },
+      renameSession: async (sessionId, title) => {
+        if (!sessionManager) throw new Error('Session manager not initialized');
+        sessionManager.renameSession(sessionId, title);
+      },
       getMessages: async (sessionId) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
         return sessionManager.getMessages(sessionId);
+      },
+      addMemory: async (sessionId, content, tags) => {
+        if (!memoryManager) {
+          throw new Error('Memory manager not initialized');
+        }
+        return memoryManager.saveMemoryEntry(sessionId, content, {
+          source: 'slash-command',
+          tags: tags || [],
+        });
+      },
+      searchMemory: async (query, limit) => {
+        if (!memoryManager) {
+          throw new Error('Memory manager not initialized');
+        }
+        return memoryManager.searchAllMemory(query, limit);
+      },
+      listMemory: async (limit) => {
+        if (!memoryManager) {
+          throw new Error('Memory manager not initialized');
+        }
+        return memoryManager.listMemory(limit);
       },
       validateWorkingDirectory: async (cwd) => {
         const unsupportedReason = getWorkspacePathUnsupportedReason(cwd);
@@ -1376,6 +1408,14 @@ ipcMain.handle('config.save', async (_event, newConfig: Partial<AppConfig>) => {
   const updatedConfig = await syncConfigAfterMutation(previousConfig);
 
   return { success: true, config: updatedConfig };
+});
+
+ipcMain.handle('permissions.listRules', () => {
+  return permissionRulesStore.list();
+});
+
+ipcMain.handle('permissions.deleteRule', (_event, rule) => {
+  return permissionRulesStore.delete(rule);
 });
 
 ipcMain.handle('config.createSet', async (_event, payload: CreateConfigSetPayload) => {
@@ -2579,6 +2619,48 @@ ipcMain.handle('schedule.runNow', async (_event, id: string) => {
   return scheduledTaskManager.runNow(id);
 });
 
+ipcMain.handle('projectTasks.list', () => {
+  try {
+    return projectTaskStore?.list() || [];
+  } catch (error) {
+    logError('[ProjectTasks] Error listing tasks:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('projectTasks.create', (_event, payload: { title: string; description?: string; status?: 'backlog' | 'in_progress' | 'done'; linkedSessionId?: string | null }) => {
+  if (!projectTaskStore) {
+    throw new Error('Project task store not initialized');
+  }
+  const title = payload.title.trim();
+  if (!title) {
+    throw new Error('Project task title is required');
+  }
+  return projectTaskStore.create({
+    ...payload,
+    title,
+    description: payload.description?.trim() || '',
+  });
+});
+
+ipcMain.handle('projectTasks.update', (_event, id: string, updates: { title?: string; description?: string; status?: 'backlog' | 'in_progress' | 'done'; linkedSessionId?: string | null }) => {
+  if (!projectTaskStore) {
+    throw new Error('Project task store not initialized');
+  }
+  return projectTaskStore.update(id, {
+    ...updates,
+    title: updates.title,
+    description: updates.description,
+  });
+});
+
+ipcMain.handle('projectTasks.delete', (_event, id: string) => {
+  if (!projectTaskStore) {
+    throw new Error('Project task store not initialized');
+  }
+  return { success: projectTaskStore.delete(id) };
+});
+
 ipcMain.handle('logs.write', (_event, level: 'info' | 'warn' | 'error', args: any[]) => {
   try {
     if (level === 'warn') {
@@ -2720,6 +2802,33 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
 
     case 'sudo.password.response':
       return sm.handleSudoPasswordResponse(event.payload.toolUseId, event.payload.password);
+
+    case 'memory.add':
+      if (!memoryManager) {
+        throw new Error('Memory manager not initialized');
+      }
+      return memoryManager.saveMemoryEntry(event.payload.sessionId, event.payload.content, {
+        source: 'slash-command',
+        tags: event.payload.tags || [],
+      });
+
+    case 'memory.delete':
+      if (!memoryManager) {
+        throw new Error('Memory manager not initialized');
+      }
+      return memoryManager.deleteMemoryEntry(event.payload.entryId);
+
+    case 'memory.search':
+      if (!memoryManager) {
+        throw new Error('Memory manager not initialized');
+      }
+      return memoryManager.searchAllMemory(event.payload.query, event.payload.limit);
+
+    case 'memory.list':
+      if (!memoryManager) {
+        throw new Error('Memory manager not initialized');
+      }
+      return memoryManager.listMemory(event.payload.limit);
 
     case 'folder.select': {
       const folderResult = await dialog.showOpenDialog(mainWindow!, {

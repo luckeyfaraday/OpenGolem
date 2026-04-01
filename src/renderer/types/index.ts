@@ -29,6 +29,7 @@ export interface Message {
   content: ContentBlock[];
   timestamp: number;
   tokenUsage?: TokenUsage;
+  estimatedCostUsd?: number;
   localStatus?: 'queued' | 'cancelled';
   executionTimeMs?: number;
 }
@@ -114,6 +115,7 @@ export type TraceStepStatus = 'pending' | 'running' | 'completed' | 'error';
 
 export type ScheduleRepeatUnit = 'minute' | 'hour' | 'day';
 export type ScheduleWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type ProjectTaskStatus = 'backlog' | 'in_progress' | 'done';
 
 export interface DailyScheduleConfig {
   kind: 'daily';
@@ -171,6 +173,30 @@ export interface ScheduleUpdateInput {
   lastRunAt?: number | null;
   lastRunSessionId?: string | null;
   lastError?: string | null;
+}
+
+export interface ProjectTask {
+  id: string;
+  title: string;
+  description: string;
+  status: ProjectTaskStatus;
+  linkedSessionId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProjectTaskCreateInput {
+  title: string;
+  description?: string;
+  status?: ProjectTaskStatus;
+  linkedSessionId?: string | null;
+}
+
+export interface ProjectTaskUpdateInput {
+  title?: string;
+  description?: string;
+  status?: ProjectTaskStatus;
+  linkedSessionId?: string | null;
 }
 
 // Skills types
@@ -275,6 +301,7 @@ export interface MemoryMetadata {
   source: string;
   timestamp: number;
   tags: string[];
+  sessionTitle?: string;
 }
 
 // Permission types
@@ -325,6 +352,10 @@ export type ClientEvent =
   | { type: 'session.getTraceSteps'; payload: { sessionId: string } }
   | { type: 'permission.response'; payload: { toolUseId: string; result: PermissionResult } }
   | { type: 'sudo.password.response'; payload: { toolUseId: string; password: string | null } }
+  | { type: 'memory.add'; payload: { sessionId: string; content: string; tags?: string[] } }
+  | { type: 'memory.delete'; payload: { entryId: string } }
+  | { type: 'memory.search'; payload: { query: string; limit?: number } }
+  | { type: 'memory.list'; payload: { limit?: number } }
   | { type: 'settings.update'; payload: Record<string, unknown> }
   | { type: 'folder.select'; payload: Record<string, never> }
   | { type: 'workdir.get'; payload: Record<string, never> }
@@ -391,7 +422,7 @@ export type ServerEvent =
   | { type: 'plugins.runtimeApplied'; payload: { sessionId: string; plugins: Array<{ name: string; path: string }> } }
   | { type: 'workdir.changed'; payload: { path: string } }
   | { type: 'session.contextInfo'; payload: { sessionId: string; contextWindow: number } }
-  | { type: 'navigate.to'; payload: { page: 'welcome' | 'settings' | 'session'; tab?: string; sessionId?: string } }
+  | { type: 'navigate.to'; payload: { page: 'welcome' | 'settings' | 'session' | 'memory' | 'tasks' | 'permissions'; tab?: string; sessionId?: string } }
   | { type: 'native-theme.changed'; payload: { shouldUseDarkColors: boolean } }
   | { type: 'new-session' }
   | { type: 'navigate'; payload: string }
@@ -482,6 +513,11 @@ export interface CreateSetPayload {
   fromSetId?: string;
 }
 
+export interface PricingOverride {
+  inputPerMillionUsd: number;
+  outputPerMillionUsd: number;
+}
+
 export interface AppConfig {
   provider: ProviderType;
   apiKey: string;
@@ -497,6 +533,7 @@ export interface AppConfig {
   claudeCodePath?: string;
   defaultWorkdir?: string;
   globalSkillsPath?: string;
+  pricingOverrides?: Record<string, PricingOverride>;
   sandboxEnabled?: boolean;
   enableThinking?: boolean;
   isConfigured: boolean;

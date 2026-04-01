@@ -331,6 +331,11 @@ export interface RemoteResponse {
   replyTo?: string;
 }
 
+export interface RemoteQuickAction {
+  label: string;
+  command: string;
+}
+
 export interface RemoteResponseContent {
   /** Content type */
   type: 'text' | 'markdown' | 'image' | 'file' | 'card';
@@ -357,6 +362,9 @@ export interface RemoteResponseContent {
   
   /** Interactive card (platform-specific) */
   card?: unknown;
+
+  /** Optional quick actions for channels that support buttons or hints */
+  quickActions?: RemoteQuickAction[];
 }
 
 // ============================================================================
@@ -367,6 +375,9 @@ export interface RemoteResponseContent {
  * Maps remote chat to local session
  */
 export interface RemoteSessionMapping {
+  /** Base conversation key for the DM/group this chat belongs to */
+  baseSessionKey: string;
+
   /** Remote channel type */
   channelType: ChannelType;
 
@@ -378,6 +389,12 @@ export interface RemoteSessionMapping {
 
   /** Remote session ID (equals sessionKey: channelType:dm:userId) */
   sessionId: string;
+
+  /** Stable per-conversation chat index used by /list and /switch */
+  chatIndex: number;
+
+  /** Whether this is the active chat for the base conversation */
+  active?: boolean;
 
   /** Actual local session ID (from agent executor). Persisted so sessions survive restart. */
   actualSessionId?: string;

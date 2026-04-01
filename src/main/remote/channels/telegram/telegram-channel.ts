@@ -439,6 +439,12 @@ export class TelegramChannel extends ChannelBase {
    */
   private async sendMessage(chatId: string, content: RemoteResponse['content'], replyTo?: string): Promise<void> {
     const chatIdNum = parseInt(chatId);
+    const replyMarkup =
+      content.quickActions && content.quickActions.length > 0
+        ? {
+            inline_keyboard: this.buildQuickActionKeyboard(content.quickActions),
+          }
+        : undefined;
 
     switch (content.type) {
       case 'text':
@@ -446,11 +452,12 @@ export class TelegramChannel extends ChannelBase {
           // Split long messages
           if (content.text.length > 4000) {
             const chunks = this.splitMessage(content.text, 4000);
-            for (const chunk of chunks) {
+            for (const [index, chunk] of chunks.entries()) {
               await this.api.sendMessage({
                 chat_id: chatIdNum,
                 text: chunk,
                 reply_to_message_id: replyTo ? parseInt(replyTo) : undefined,
+                reply_markup: index === 0 ? replyMarkup : undefined,
               });
               await new Promise(resolve => setTimeout(resolve, 200));
             }
@@ -459,6 +466,7 @@ export class TelegramChannel extends ChannelBase {
               chat_id: chatIdNum,
               text: content.text,
               reply_to_message_id: replyTo ? parseInt(replyTo) : undefined,
+              reply_markup: replyMarkup,
             });
           }
         }
@@ -467,12 +475,13 @@ export class TelegramChannel extends ChannelBase {
       case 'markdown':
         if (content.markdown) {
           const chunks = this.splitMessage(content.markdown, 4000);
-          for (const chunk of chunks) {
+          for (const [index, chunk] of chunks.entries()) {
             await this.api.sendMessage({
               chat_id: chatIdNum,
               text: this.escapeMarkdownV2(chunk),
               parse_mode: 'MarkdownV2',
               reply_to_message_id: replyTo ? parseInt(replyTo) : undefined,
+              reply_markup: index === 0 ? replyMarkup : undefined,
             });
             await new Promise(resolve => setTimeout(resolve, 200));
           }
@@ -508,7 +517,21 @@ export class TelegramChannel extends ChannelBase {
           chat_id: chatIdNum,
           text,
           reply_to_message_id: replyTo ? parseInt(replyTo) : undefined,
+          reply_markup: replyMarkup,
         });
     }
+  }
+
+  private buildQuickActionKeyboard(actions: Array<{ label: string; command: string }>): Array<Array<{ text: string; callback_data: string }>> {
+    const rows: Array<Array<{ text: string; callback_data: string }>> = [];
+    for (let index = 0; index < actions.length; index += 2) {
+      rows.push(
+        actions.slice(index, index + 2).map((action) => ({
+          text: action.label,
+          callback_data: action.command,
+        }))
+      );
+    }
+    return rows;
   }
 }

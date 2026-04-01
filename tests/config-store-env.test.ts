@@ -188,6 +188,26 @@ describe('ConfigStore applyToEnv', () => {
     expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.5');
   });
 
+  it('persists manual pricing overrides on config updates', () => {
+    const store = new ConfigStore();
+
+    store.update({
+      pricingOverrides: {
+        'openrouter::openrouter/anthropic/claude-sonnet-4': {
+          inputPerMillionUsd: 1.5,
+          outputPerMillionUsd: 6,
+        },
+      },
+    });
+
+    expect(store.getAll().pricingOverrides).toEqual({
+      'openrouter::openrouter/anthropic/claude-sonnet-4': {
+        inputPerMillionUsd: 1.5,
+        outputPerMillionUsd: 6,
+      },
+    });
+  });
+
   it('normalizes trailing /v1 for anthropic-compatible base url when applying env', () => {
     const store = new ConfigStore();
 

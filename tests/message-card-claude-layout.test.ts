@@ -22,6 +22,8 @@ describe('MessageCard Claude-style layout', () => {
     expect(source).toContain("t('messageCard.executionTime'");
     expect(source).toContain("t('context.inputTokens')");
     expect(source).toContain("t('context.outputTokens')");
+    expect(source).toContain('Estimated cost');
+    expect(source).toContain('function formatEstimatedCost');
     expect(source).toContain('function formatTokenCount');
   });
 });

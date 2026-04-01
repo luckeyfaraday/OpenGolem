@@ -19,6 +19,9 @@ import type {
   ProviderModelInfo,
   OAuthProviderId,
   OAuthProviderStatus,
+  ProjectTask,
+  ProjectTaskCreateInput,
+  ProjectTaskUpdateInput,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
 
@@ -343,6 +346,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     runNow: (id: string): Promise<ScheduleTask | null> =>
       ipcRenderer.invoke('schedule.runNow', id),
   },
+
+  projectTasks: {
+    list: (): Promise<ProjectTask[]> => ipcRenderer.invoke('projectTasks.list'),
+    create: (payload: ProjectTaskCreateInput): Promise<ProjectTask> =>
+      ipcRenderer.invoke('projectTasks.create', payload),
+    update: (id: string, updates: ProjectTaskUpdateInput): Promise<ProjectTask | null> =>
+      ipcRenderer.invoke('projectTasks.update', id, updates),
+    delete: (id: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('projectTasks.delete', id),
+  },
+
+  permissions: {
+    listRules: (): Promise<Array<{ tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }>> =>
+      ipcRenderer.invoke('permissions.listRules'),
+    deleteRule: (rule: { tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }): Promise<Array<{ tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }>> =>
+      ipcRenderer.invoke('permissions.deleteRule', rule),
+  },
 });
 
 // Type declaration for the renderer process
@@ -537,6 +557,16 @@ declare global {
         delete: (id: string) => Promise<{ success: boolean }>;
         toggle: (id: string, enabled: boolean) => Promise<ScheduleTask | null>;
         runNow: (id: string) => Promise<ScheduleTask | null>;
+      };
+      projectTasks: {
+        list: () => Promise<ProjectTask[]>;
+        create: (payload: ProjectTaskCreateInput) => Promise<ProjectTask>;
+        update: (id: string, updates: ProjectTaskUpdateInput) => Promise<ProjectTask | null>;
+        delete: (id: string) => Promise<{ success: boolean }>;
+      };
+      permissions: {
+        listRules: () => Promise<Array<{ tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }>>;
+        deleteRule: (rule: { tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }) => Promise<Array<{ tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }>>;
       };
     };
   }

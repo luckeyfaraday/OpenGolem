@@ -2,8 +2,22 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
+import { SlashCommandMenu } from './SlashCommandMenu';
 import type { ContentBlock } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
+import {
+  buildSlashCommandHelpText,
+  buildSlashCommandMemoryHelpText,
+  buildSlashCommandMemoryText,
+  buildSlashCommandReviewPrompt,
+  getSlashCommandSuggestions,
+  parseMemoryCommandArgs,
+  buildSlashCommandUsageText,
+  buildSlashCommandWhereText,
+  buildUnknownSlashCommandText,
+  isKnownSlashCommand,
+  parseSlashCommand,
+} from '../utils/slash-commands';
 import {
   FileText,
   BarChart3,
@@ -31,6 +45,7 @@ export function WelcomeView() {
   const [prompt, setPrompt] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedSlashCommandIndex, setSelectedSlashCommandIndex] = useState(0);
   const isComposingRef = useRef(false);
   const [pastedImages, setPastedImages] = useState<
     Array<{ url: string; base64: string; mediaType: string }>
@@ -38,13 +53,21 @@ export function WelcomeView() {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { startSession, changeWorkingDir, isElectron } = useIPC();
+  const { startSession, changeWorkingDir, searchMemory, listMemory, isElectron } = useIPC();
   const workingDir = useAppStore((state) => state.workingDir);
+  const appConfig = useAppStore((state) => state.appConfig);
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
   const isConfigured = useAppStore((state) => state.isConfigured);
   const setShowSettings = useAppStore((state) => state.setShowSettings);
   const setSettingsTab = useAppStore((state) => state.setSettingsTab);
   const canSubmit = prompt.trim().length > 0 || pastedImages.length > 0 || attachedFiles.length > 0;
+  const slashSuggestions = getSlashCommandSuggestions(prompt);
+
+  useEffect(() => {
+    setSelectedSlashCommandIndex((current) =>
+      slashSuggestions.length === 0 ? 0 : Math.min(current, slashSuggestions.length - 1)
+    );
+  }, [slashSuggestions]);
 
   const handleSelectFolder = async () => {
     try {
@@ -303,54 +326,17 @@ export function WelcomeView() {
 
     // Get value from ref to handle both controlled and uncontrolled cases
     const currentPrompt = textareaRef.current?.value || prompt;
+    const trimmedPrompt = currentPrompt.trim();
 
     if (
-      (!currentPrompt.trim() && pastedImages.length === 0 && attachedFiles.length === 0) ||
+      (!trimmedPrompt && pastedImages.length === 0 && attachedFiles.length === 0) ||
       isSubmitting
     )
       return;
 
-    // Build content blocks
-    const contentBlocks: ContentBlock[] = [];
-
-    // Add images first
-    pastedImages.forEach((img) => {
-      contentBlocks.push({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: img.mediaType as any,
-          data: img.base64,
-        },
-      });
-    });
-
-    // Add file attachments
-    attachedFiles.forEach((file) => {
-      contentBlocks.push({
-        type: 'file_attachment',
-        filename: file.name,
-        relativePath: file.path,
-        size: file.size,
-        mimeType: file.type,
-        inlineDataBase64: file.inlineDataBase64,
-      });
-    });
-
-    // Add text if present
-    if (currentPrompt.trim()) {
-      contentBlocks.push({
-        type: 'text',
-        text: currentPrompt.trim(),
-      });
-    }
-
-    // Use the global working directory (always available after app startup)
     setIsSubmitting(true);
     try {
-      const sessionTitle = getInitialSessionTitle(currentPrompt, attachedFiles[0]?.name);
-      const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined);
-      if (session) {
+      const clearComposer = () => {
         setPrompt('');
         if (textareaRef.current) {
           textareaRef.current.value = '';
@@ -358,10 +344,153 @@ export function WelcomeView() {
         pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
         setPastedImages([]);
         setAttachedFiles([]);
+      };
+
+      const pushNotice = (message: string, type: 'info' | 'warning' | 'error' | 'success' = 'info') => {
+        setGlobalNotice({
+          id: `notice-slash-${Date.now()}`,
+          type,
+          message,
+        });
+      };
+
+      const slashCommand = parseSlashCommand(trimmedPrompt);
+      if (slashCommand) {
+        if (pastedImages.length > 0 || attachedFiles.length > 0) {
+          pushNotice('Slash commands do not support attachments yet.', 'warning');
+          return;
+        }
+
+        if (!isKnownSlashCommand(slashCommand.name)) {
+          pushNotice(buildUnknownSlashCommandText(slashCommand.name), 'warning');
+          clearComposer();
+          return;
+        }
+
+        switch (slashCommand.name) {
+          case 'help':
+            pushNotice(buildSlashCommandHelpText());
+            clearComposer();
+            return;
+          case 'memory': {
+            const memoryCommand = parseMemoryCommandArgs(slashCommand.args);
+            if (memoryCommand.kind === 'help') {
+              pushNotice(buildSlashCommandMemoryHelpText());
+              clearComposer();
+              return;
+            }
+            if (memoryCommand.kind === 'invalid') {
+              pushNotice(memoryCommand.message, 'warning');
+              clearComposer();
+              return;
+            }
+            if (memoryCommand.kind === 'add') {
+              pushNotice('Memory add requires an active chat.', 'warning');
+              clearComposer();
+              return;
+            }
+            if (memoryCommand.kind === 'search') {
+              const entries = await searchMemory(memoryCommand.query, memoryCommand.limit);
+              pushNotice(buildSlashCommandMemoryText(entries, `Memory search: ${memoryCommand.query}`));
+              clearComposer();
+              return;
+            }
+            const entries = await listMemory(memoryCommand.limit);
+            pushNotice(buildSlashCommandMemoryText(entries, 'Recent memories:'));
+            clearComposer();
+            return;
+          }
+          case 'where':
+            pushNotice(
+              buildSlashCommandWhereText({
+                workingDir,
+                model: appConfig?.model || null,
+              })
+            );
+            clearComposer();
+            return;
+          case 'usage':
+            pushNotice(buildSlashCommandUsageText([]));
+            clearComposer();
+            return;
+          case 'new':
+            if (!slashCommand.args) {
+              clearComposer();
+              pushNotice('Already ready for a fresh chat.');
+              return;
+            }
+            clearComposer();
+            await startSession(
+              getInitialSessionTitle(slashCommand.args),
+              slashCommand.args,
+              workingDir || undefined
+            );
+            return;
+          case 'review':
+            clearComposer();
+            await startSession(
+              getInitialSessionTitle('Review workspace changes'),
+              buildSlashCommandReviewPrompt(slashCommand.args),
+              workingDir || undefined
+            );
+            return;
+        }
+      }
+
+      // Build content blocks
+      const contentBlocks: ContentBlock[] = [];
+
+      pastedImages.forEach((img) => {
+        contentBlocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: img.mediaType as any,
+            data: img.base64,
+          },
+        });
+      });
+
+      attachedFiles.forEach((file) => {
+        contentBlocks.push({
+          type: 'file_attachment',
+          filename: file.name,
+          relativePath: file.path,
+          size: file.size,
+          mimeType: file.type,
+          inlineDataBase64: file.inlineDataBase64,
+        });
+      });
+
+      if (trimmedPrompt) {
+        contentBlocks.push({
+          type: 'text',
+          text: trimmedPrompt,
+        });
+      }
+
+      const sessionTitle = getInitialSessionTitle(currentPrompt, attachedFiles[0]?.name);
+      const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined);
+      if (session) {
+        clearComposer();
       }
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const applySlashCommand = (commandName: string) => {
+    const nextValue = `/${commandName} `;
+    setPrompt(nextValue);
+    setSelectedSlashCommandIndex(0);
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.value = nextValue;
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(nextValue.length, nextValue.length);
+        adjustTextareaHeight();
+      }
+    });
   };
 
   const handleTagClick = (tag: string, tagPrompt: string) => {
@@ -568,6 +697,12 @@ export function WelcomeView() {
           )}
 
           {/* Text Input - Auto-resizing */}
+          <SlashCommandMenu
+            commands={slashSuggestions}
+            selectedIndex={selectedSlashCommandIndex}
+            onSelect={(command) => applySlashCommand(command.name)}
+          />
+
           <textarea
             ref={textareaRef}
             value={prompt}
@@ -587,6 +722,32 @@ export function WelcomeView() {
             style={{ minHeight: '72px', maxHeight: '200px' }}
             className="w-full resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-base leading-relaxed overflow-hidden"
             onKeyDown={(e) => {
+              const slashSelectionText = (textareaRef.current?.value || prompt).trimStart();
+              const shouldApplySlashSelection =
+                slashSuggestions.length > 0 && /^\/\S*$/.test(slashSelectionText);
+
+              if (e.key === 'ArrowDown' && slashSuggestions.length > 0) {
+                e.preventDefault();
+                setSelectedSlashCommandIndex((current) =>
+                  (current + 1) % slashSuggestions.length
+                );
+                return;
+              }
+
+              if (e.key === 'ArrowUp' && slashSuggestions.length > 0) {
+                e.preventDefault();
+                setSelectedSlashCommandIndex((current) =>
+                  (current - 1 + slashSuggestions.length) % slashSuggestions.length
+                );
+                return;
+              }
+
+              if ((e.key === 'Tab' || e.key === 'Enter') && shouldApplySlashSelection) {
+                e.preventDefault();
+                applySlashCommand(slashSuggestions[selectedSlashCommandIndex].name);
+                return;
+              }
+
               // Enter to send, Shift+Enter for new line
               if (e.key === 'Enter' && !e.shiftKey) {
                 if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {

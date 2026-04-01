@@ -22,6 +22,9 @@ const isElectronEnv = typeof window !== 'undefined' && window.electronAPI !== un
 const ChatView = lazy(() => import('./components/ChatView').then((module) => ({ default: module.ChatView })));
 const ContextPanel = lazy(() => import('./components/ContextPanel').then((module) => ({ default: module.ContextPanel })));
 const ConfigModal = lazy(() => import('./components/ConfigModal').then((module) => ({ default: module.ConfigModal })));
+const MemoryPanel = lazy(() => import('./components/MemoryPanel').then((module) => ({ default: module.MemoryPanel })));
+const PermissionsPanel = lazy(() => import('./components/PermissionsPanel').then((module) => ({ default: module.PermissionsPanel })));
+const TasksPanel = lazy(() => import('./components/TasksPanel').then((module) => ({ default: module.TasksPanel })));
 const SettingsPanel = lazy(() => import('./components/SettingsPanel').then((module) => ({ default: module.SettingsPanel })));
 
 function MainPanelFallback() {
@@ -43,6 +46,9 @@ function App() {
   const settings = useAppStore((s) => s.settings);
   const showConfigModal = useAppStore((s) => s.showConfigModal);
   const showSettings = useAppStore((s) => s.showSettings);
+  const showMemoryPanel = useAppStore((s) => s.showMemoryPanel);
+  const showTasksPanel = useAppStore((s) => s.showTasksPanel);
+  const showPermissionsPanel = useAppStore((s) => s.showPermissionsPanel);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const isConfigured = useAppStore((s) => s.isConfigured);
   const appConfig = useAppStore((s) => s.appConfig);
@@ -56,6 +62,9 @@ function App() {
   const clearGlobalNotice = useAppStore((s) => s.clearGlobalNotice);
   const setSandboxSetupComplete = useAppStore((s) => s.setSandboxSetupComplete);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const setShowMemoryPanel = useAppStore((s) => s.setShowMemoryPanel);
+  const setShowTasksPanel = useAppStore((s) => s.setShowTasksPanel);
+  const setShowPermissionsPanel = useAppStore((s) => s.setShowPermissionsPanel);
   const setSidebarCollapsed = useAppStore((s) => s.setSidebarCollapsed);
   const setContextPanelCollapsed = useAppStore((s) => s.setContextPanelCollapsed);
   const { listSessions, isElectron } = useIPC();
@@ -106,6 +115,26 @@ function App() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSettings]);
+
+  useEffect(() => {
+    if (showSettings && showMemoryPanel) {
+      setShowMemoryPanel(false);
+    }
+    if (showSettings && showTasksPanel) {
+      setShowTasksPanel(false);
+    }
+    if (showSettings && showPermissionsPanel) {
+      setShowPermissionsPanel(false);
+    }
+  }, [
+    setShowMemoryPanel,
+    setShowPermissionsPanel,
+    setShowTasksPanel,
+    showMemoryPanel,
+    showPermissionsPanel,
+    showSettings,
+    showTasksPanel,
+  ]);
 
   // Handle config save
   const handleConfigSave = useCallback(async (newConfig: Partial<AppConfig>) => {
@@ -162,6 +191,24 @@ function App() {
                 <SettingsPanel onClose={() => setShowSettings(false)} />
               </Suspense>
             </PanelErrorBoundary>
+          ) : showMemoryPanel ? (
+            <PanelErrorBoundary name="MemoryPanel" fallback={<MainPanelFallback />}>
+              <Suspense fallback={<MainPanelFallback />}>
+                <MemoryPanel />
+              </Suspense>
+            </PanelErrorBoundary>
+          ) : showPermissionsPanel ? (
+            <PanelErrorBoundary name="PermissionsPanel" fallback={<MainPanelFallback />}>
+              <Suspense fallback={<MainPanelFallback />}>
+                <PermissionsPanel />
+              </Suspense>
+            </PanelErrorBoundary>
+          ) : showTasksPanel ? (
+            <PanelErrorBoundary name="TasksPanel" fallback={<MainPanelFallback />}>
+              <Suspense fallback={<MainPanelFallback />}>
+                <TasksPanel />
+              </Suspense>
+            </PanelErrorBoundary>
           ) : activeSessionId ? (
             <PanelErrorBoundary name="ChatView" fallback={<MainPanelFallback />}>
               <Suspense fallback={<MainPanelFallback />}>
@@ -174,7 +221,7 @@ function App() {
         </main>
 
         {/* Context Panel - only show when in session and not in settings */}
-        {activeSessionId && !showSettings && (
+        {activeSessionId && !showSettings && !showMemoryPanel && !showTasksPanel && !showPermissionsPanel && (
           <PanelErrorBoundary name="ContextPanel" fallback={<ContextPanelFallback />}>
             <Suspense fallback={<ContextPanelFallback />}>
               <ContextPanel />
@@ -194,7 +241,7 @@ function App() {
       )}
       
       {/* Permission Dialog */}
-      {pendingPermission && <PermissionDialog permission={pendingPermission} />}
+      {pendingPermission && !showPermissionsPanel && <PermissionDialog permission={pendingPermission} />}
 
       {/* Sudo Password Dialog */}
       {pendingSudoPassword && <SudoPasswordDialog request={pendingSudoPassword} />}

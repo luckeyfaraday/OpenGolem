@@ -93,13 +93,25 @@ export function ContextPanel() {
   const tokenUsage = useMemo(() => {
     let input = 0;
     let output = 0;
+    let estimatedCostUsd = 0;
+    let hasEstimatedCost = false;
     for (const msg of messages) {
       if (msg.tokenUsage) {
         input += msg.tokenUsage.input || 0;
         output += msg.tokenUsage.output || 0;
       }
+      if (typeof msg.estimatedCostUsd === 'number' && Number.isFinite(msg.estimatedCostUsd)) {
+        estimatedCostUsd += msg.estimatedCostUsd;
+        hasEstimatedCost = true;
+      }
     }
-    return { input, output, total: input + output };
+    return {
+      input,
+      output,
+      total: input + output,
+      estimatedCostUsd,
+      hasEstimatedCost,
+    };
   }, [messages]);
 
   // Context usage: last message's input tokens ≈ current context occupation
@@ -276,8 +288,11 @@ export function ContextPanel() {
               {toolCallCount}
             </span>
             {tokenUsage.total > 0 && (
-              <span className="ml-auto text-text-muted/70">
+              <span className="ml-auto text-right text-text-muted/70">
                 {t('context.inputTokens')} {formatTokenCount(tokenUsage.input)} · {t('context.outputTokens')} {formatTokenCount(tokenUsage.output)}
+                {tokenUsage.hasEstimatedCost && (
+                  <span className="block">Estimated cost {formatEstimatedCost(tokenUsage.estimatedCostUsd)}</span>
+                )}
               </span>
             )}
           </div>
@@ -623,4 +638,10 @@ function formatTokenCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
+}
+
+function formatEstimatedCost(costUsd: number): string {
+  if (costUsd < 0.0001) return '<$0.0001';
+  if (costUsd < 0.01) return `$${costUsd.toFixed(4)}`;
+  return `$${costUsd.toFixed(2)}`;
 }

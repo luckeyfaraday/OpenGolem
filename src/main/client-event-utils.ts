@@ -12,6 +12,9 @@ export function eventRequiresSessionManager(event: ClientEvent): boolean {
     case 'session.getTraceSteps':
     case 'permission.response':
       return true;
+    case 'memory.add':
+    case 'memory.search':
+    case 'memory.list':
     default:
       return false;
   }

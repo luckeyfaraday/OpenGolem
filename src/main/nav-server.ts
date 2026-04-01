@@ -6,7 +6,7 @@
  * Exposes HTTP endpoints on 127.0.0.1:19888 for external tools (e.g. Claude Code)
  * to control app page navigation programmatically:
  *   GET /status           → current page state
- *   GET /navigate?page=X  → navigate to welcome, settings, or session pages
+ *   GET /navigate?page=X  → navigate to welcome, settings, session, memory, tasks, or permissions pages
  *
  * Dependencies: electron (BrowserWindow)
  */
@@ -53,6 +53,9 @@ function execJS(win: BrowserWindow, code: string): Promise<unknown> {
  *   GET /navigate?page=welcome
  *   GET /navigate?page=settings&tab=api
  *   GET /navigate?page=session&id=xxx
+ *   GET /navigate?page=memory
+ *   GET /navigate?page=tasks
+ *   GET /navigate?page=permissions
  *   GET /status
  */
 export function startNavServer(getMainWindow: () => BrowserWindow | null): void {
@@ -68,8 +71,8 @@ export function startNavServer(getMainWindow: () => BrowserWindow | null): void 
         const tab = url.searchParams.get('tab') || undefined;
         const sessionId = url.searchParams.get('id') || undefined;
 
-        if (!page || !['welcome', 'settings', 'session'].includes(page)) {
-          return json(res, 400, { ok: false, error: 'Invalid page. Use: welcome, settings, session' });
+        if (!page || !['welcome', 'settings', 'session', 'memory', 'tasks', 'permissions'].includes(page)) {
+          return json(res, 400, { ok: false, error: 'Invalid page. Use: welcome, settings, session, memory, tasks, permissions' });
         }
 
         if (page === 'settings' && tab && !VALID_TABS.has(tab)) {
@@ -120,6 +123,9 @@ export function startNavServer(getMainWindow: () => BrowserWindow | null): void 
           const parsed = JSON.parse(state);
           let currentPage = 'welcome';
           if (parsed.showSettings) currentPage = 'settings';
+          else if (parsed.showMemoryPanel) currentPage = 'memory';
+          else if (parsed.showTasksPanel) currentPage = 'tasks';
+          else if (parsed.showPermissionsPanel) currentPage = 'permissions';
           else if (parsed.activeSessionId) currentPage = 'session';
 
           return json(res, 200, {

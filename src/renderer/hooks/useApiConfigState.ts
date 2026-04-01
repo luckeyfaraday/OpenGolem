@@ -8,6 +8,7 @@ import type {
   CustomProtocolType,
   DiagnosticResult,
   OAuthProviderStatus,
+  PricingOverride,
   ProviderModelInfo,
   ProviderProfile,
   ProviderProfileKey,
@@ -52,12 +53,18 @@ interface ConfigStateSnapshot {
   activeProfileKey: ProviderProfileKey;
   profiles: Record<ProviderProfileKey, UIProviderProfile>;
   enableThinking: boolean;
+  pricingOverrides: Record<string, PricingOverride>;
 }
 
 interface ApiConfigBootstrap {
   snapshot: ConfigStateSnapshot;
   configSets: ApiConfigSet[];
   activeConfigSetId: string;
+}
+
+interface UIPricingOverrideDraft {
+  inputPerMillionUsd: string;
+  outputPerMillionUsd: string;
 }
 
 type CreateMode = 'blank' | 'clone';
@@ -119,6 +126,64 @@ function isProviderType(value: unknown): value is ProviderType {
 
 function isCustomProtocol(value: unknown): value is CustomProtocolType {
   return value === 'anthropic' || value === 'openai' || value === 'gemini';
+}
+
+function buildPricingOverrideKey(provider: ProviderType, model: string): string {
+  return `${provider.trim().toLowerCase()}::${model.trim().toLowerCase()}`;
+}
+
+function normalizePricingOverrides(
+  value: AppConfig['pricingOverrides']
+): Record<string, PricingOverride> {
+  if (!value) {
+    return {};
+  }
+  const normalized: Record<string, PricingOverride> = {};
+  for (const [key, override] of Object.entries(value)) {
+    if (!key.trim() || !override) continue;
+    const input = Number(override.inputPerMillionUsd);
+    const output = Number(override.outputPerMillionUsd);
+    if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) {
+      continue;
+    }
+    normalized[key.trim()] = {
+      inputPerMillionUsd: input,
+      outputPerMillionUsd: output,
+    };
+  }
+  return normalized;
+}
+
+function pricingOverridesToDrafts(
+  overrides: Record<string, PricingOverride>
+): Record<string, UIPricingOverrideDraft> {
+  return Object.fromEntries(
+    Object.entries(overrides).map(([key, override]) => [
+      key,
+      {
+        inputPerMillionUsd: String(override.inputPerMillionUsd),
+        outputPerMillionUsd: String(override.outputPerMillionUsd),
+      },
+    ])
+  );
+}
+
+function pricingDraftsToPersisted(
+  drafts: Record<string, UIPricingOverrideDraft>
+): Record<string, PricingOverride> {
+  const persisted: Record<string, PricingOverride> = {};
+  for (const [key, draft] of Object.entries(drafts)) {
+    const input = Number(draft.inputPerMillionUsd);
+    const output = Number(draft.outputPerMillionUsd);
+    if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) {
+      continue;
+    }
+    persisted[key] = {
+      inputPerMillionUsd: input,
+      outputPerMillionUsd: output,
+    };
+  }
+  return persisted;
 }
 
 export function profileKeyFromProvider(
@@ -374,6 +439,7 @@ export function buildApiConfigSnapshot(
     activeProfileKey,
     profiles,
     enableThinking: Boolean(config?.enableThinking),
+    pricingOverrides: normalizePricingOverrides(config?.pricingOverrides),
   };
 }
 
@@ -400,7 +466,8 @@ function toPersistedProfiles(
 export function buildApiConfigDraftSignature(
   activeProfileKey: ProviderProfileKey,
   profiles: Record<ProviderProfileKey, UIProviderProfile>,
-  enableThinking: boolean
+  enableThinking: boolean,
+  pricingOverrideDrafts: Record<string, UIPricingOverrideDraft> = {}
 ): string {
   const persisted = toPersistedProfiles(profiles);
   return JSON.stringify({
@@ -412,6 +479,7 @@ export function buildApiConfigDraftSignature(
       baseUrl: persisted[key]?.baseUrl || '',
       model: persisted[key]?.model || '',
     })),
+    pricingOverrides: pricingDraftsToPersisted(pricingOverrideDrafts),
   });
 }
 
@@ -631,6 +699,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const [discoveredModels, setDiscoveredModels] = useState<
     Partial<Record<ProviderProfileKey, ProviderModelInfo[]>>
   >({});
+  const [pricingOverrideDrafts, setPricingOverrideDrafts] = useState<
+    Record<string, UIPricingOverrideDraft>
+  >(() => pricingOverridesToDrafts(initialBootstrap.snapshot.pricingOverrides));
   const [isLoadingConfig, setIsLoadingConfig] = useState(true);
   const [savedDraftSignature, setSavedDraftSignature] = useState('');
 
@@ -741,6 +812,19 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const useCustomModel = currentProfile.useCustomModel;
   const contextWindow = currentProfile.contextWindow;
   const maxTokens = currentProfile.maxTokens;
+  const currentResolvedModel = useCustomModel ? (customModel.trim() || model) : model;
+  const currentPricingOverrideKey = currentResolvedModel.trim()
+    ? buildPricingOverrideKey(provider, currentResolvedModel)
+    : '';
+  const currentPricingOverrideDraft = currentPricingOverrideKey
+    ? (pricingOverrideDrafts[currentPricingOverrideKey] || {
+        inputPerMillionUsd: '',
+        outputPerMillionUsd: '',
+      })
+    : {
+        inputPerMillionUsd: '',
+        outputPerMillionUsd: '',
+      };
   const oauthStatus = isOAuthProvider(provider) ? oauthStatuses[provider] : undefined;
   const detectedProviderSetup = useMemo(
     () => (provider === 'custom' ? detectCommonProviderSetup(baseUrl) : null),
@@ -895,8 +979,8 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     ? Boolean(oauthStatus?.connected)
     : (!requiresApiKey || Boolean(apiKey.trim()));
   const currentDraftSignature = useMemo(
-    () => buildApiConfigDraftSignature(activeProfileKey, profiles, enableThinking),
-    [activeProfileKey, profiles, enableThinking]
+    () => buildApiConfigDraftSignature(activeProfileKey, profiles, enableThinking, pricingOverrideDrafts),
+    [activeProfileKey, profiles, enableThinking, pricingOverrideDrafts]
   );
   const hasUnsavedChanges =
     savedDraftSignature !== '' && currentDraftSignature !== savedDraftSignature;
@@ -909,6 +993,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
       setProfiles(bootstrap.snapshot.profiles);
       setActiveProfileKey(bootstrap.snapshot.activeProfileKey);
       setEnableThinking(bootstrap.snapshot.enableThinking);
+      setPricingOverrideDrafts(pricingOverridesToDrafts(bootstrap.snapshot.pricingOverrides));
       setConfigSets(bootstrap.configSets);
       setActiveConfigSetId(bootstrap.activeConfigSetId);
       setPendingConfigSetAction(null);
@@ -930,7 +1015,8 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
         buildApiConfigDraftSignature(
           bootstrap.snapshot.activeProfileKey,
           bootstrap.snapshot.profiles,
-          bootstrap.snapshot.enableThinking
+          bootstrap.snapshot.enableThinking,
+          pricingOverridesToDrafts(bootstrap.snapshot.pricingOverrides)
         )
       );
     },
@@ -988,6 +1074,49 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     },
     [updateActiveProfile]
   );
+
+  const setPricingOverrideInput = useCallback(
+    (value: string) => {
+      if (!currentPricingOverrideKey) return;
+      setPricingOverrideDrafts((prev) => ({
+        ...prev,
+        [currentPricingOverrideKey]: {
+          ...(prev[currentPricingOverrideKey] || {
+            inputPerMillionUsd: '',
+            outputPerMillionUsd: '',
+          }),
+          inputPerMillionUsd: value,
+        },
+      }));
+    },
+    [currentPricingOverrideKey]
+  );
+
+  const setPricingOverrideOutput = useCallback(
+    (value: string) => {
+      if (!currentPricingOverrideKey) return;
+      setPricingOverrideDrafts((prev) => ({
+        ...prev,
+        [currentPricingOverrideKey]: {
+          ...(prev[currentPricingOverrideKey] || {
+            inputPerMillionUsd: '',
+            outputPerMillionUsd: '',
+          }),
+          outputPerMillionUsd: value,
+        },
+      }));
+    },
+    [currentPricingOverrideKey]
+  );
+
+  const clearPricingOverride = useCallback(() => {
+    if (!currentPricingOverrideKey) return;
+    setPricingOverrideDrafts((prev) => {
+      const next = { ...prev };
+      delete next[currentPricingOverrideKey];
+      return next;
+    });
+  }, [currentPricingOverrideKey]);
 
   const setBaseUrl = useCallback(
     (value: string) => {
@@ -1642,6 +1771,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
             : (currentPreset.baseUrl || baseUrl).trim();
 
         const persistedProfiles = toPersistedProfiles(profiles);
+        const persistedPricingOverrides = pricingDraftsToPersisted(pricingOverrideDrafts);
 
         const payload: Partial<AppConfig> = {
           provider,
@@ -1652,6 +1782,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
           activeProfileKey,
           profiles: persistedProfiles,
           activeConfigSetId,
+          pricingOverrides: persistedPricingOverrides,
           enableThinking,
         };
 
@@ -1694,6 +1825,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
       model,
       onSave,
       presets,
+      pricingOverrideDrafts,
       profiles,
       provider,
       requiresApiKey,
@@ -1966,6 +2098,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     useCustomModel,
     contextWindow,
     maxTokens,
+    currentPricingOverrideKey,
+    currentPricingOverrideInput: currentPricingOverrideDraft.inputPerMillionUsd,
+    currentPricingOverrideOutput: currentPricingOverrideDraft.outputPerMillionUsd,
     modelInputPlaceholder: modelInputGuidance.placeholder,
     modelInputHint: modelInputGuidance.hint,
     enableThinking,
@@ -2005,9 +2140,12 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     setBaseUrl,
     setModel,
     setCustomModel,
+    setPricingOverrideInput,
+    setPricingOverrideOutput,
     setContextWindow,
     setMaxTokens,
     toggleCustomModel,
+    clearPricingOverride,
     setEnableThinking,
     applyCommonProviderSetup,
     changeProvider,

@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { Message, MemoryEntry, ContentBlock } from '../../renderer/types';
+import type { Message, MemoryEntry, ContentBlock, MemoryMetadata } from '../../renderer/types';
 import { v4 as uuidv4 } from 'uuid';
 import { logError } from '../utils/logger';
 
@@ -84,6 +84,7 @@ export class MemoryManager {
         content,
         timestamp: row.timestamp as number,
         tokenUsage,
+        estimatedCostUsd: typeof row.estimated_cost_usd === 'number' ? row.estimated_cost_usd : undefined,
       };
     });
   }
@@ -245,15 +246,16 @@ export class MemoryManager {
     content: string,
     metadata: { source: string; tags: string[] }
   ): MemoryEntry {
+    const createdAt = Date.now();
     const entry: MemoryEntry = {
       id: uuidv4(),
       sessionId,
       content,
       metadata: {
         ...metadata,
-        timestamp: Date.now(),
+        timestamp: createdAt,
       },
-      createdAt: Date.now(),
+      createdAt,
     };
 
     const stmt = this.db.prepare(`
@@ -271,12 +273,17 @@ export class MemoryManager {
 
     // Update FTS index
     const ftsStmt = this.db.prepare(`
-      INSERT INTO memory_fts (rowid, content)
-      SELECT rowid, content FROM memory_entries WHERE id = ?
+      INSERT INTO memory_fts (entry_id, session_id, content)
+      VALUES (?, ?, ?)
     `);
-    ftsStmt.run(entry.id);
+    ftsStmt.run(entry.id, entry.sessionId, entry.content);
 
-    return entry;
+    return this.enrichMemoryEntry({
+      ...entry,
+      metadata: {
+        ...entry.metadata,
+      },
+    });
   }
 
   /**
@@ -284,31 +291,45 @@ export class MemoryManager {
    */
   searchMemory(sessionId: string, query: string): MemoryEntry[] {
     const stmt = this.db.prepare(`
-      SELECT me.* FROM memory_entries me
-      JOIN memory_fts fts ON me.rowid = fts.rowid
-      WHERE me.session_id = ? AND memory_fts MATCH ?
-      ORDER BY rank
+      SELECT me.*, s.title AS session_title
+      FROM memory_fts fts
+      JOIN memory_entries me ON me.id = fts.entry_id
+      LEFT JOIN sessions s ON s.id = me.session_id
+      WHERE fts.session_id = ? AND fts MATCH ?
+      ORDER BY me.created_at DESC
       LIMIT 20
     `);
 
     const rows = stmt.all(sessionId, query) as Record<string, unknown>[];
+    return rows.map((row) => this.hydrateMemoryEntry(row));
+  }
 
-    return rows.map((row) => {
-      let metadata;
-      try {
-        metadata = JSON.parse(row.metadata as string);
-      } catch {
-        metadata = row.metadata;
-      }
+  searchAllMemory(query: string, limit: number = 20): MemoryEntry[] {
+    const stmt = this.db.prepare(`
+      SELECT me.*, s.title AS session_title
+      FROM memory_fts fts
+      JOIN memory_entries me ON me.id = fts.entry_id
+      LEFT JOIN sessions s ON s.id = me.session_id
+      WHERE fts MATCH ?
+      ORDER BY me.created_at DESC
+      LIMIT ?
+    `);
 
-      return {
-        id: row.id as string,
-        sessionId: row.session_id as string,
-        content: row.content as string,
-        metadata,
-        createdAt: row.created_at as number,
-      };
-    });
+    const rows = stmt.all(query, limit) as Record<string, unknown>[];
+    return rows.map((row) => this.hydrateMemoryEntry(row));
+  }
+
+  listMemory(limit: number = 20): MemoryEntry[] {
+    const stmt = this.db.prepare(`
+      SELECT me.*, s.title AS session_title
+      FROM memory_entries me
+      LEFT JOIN sessions s ON s.id = me.session_id
+      ORDER BY me.created_at DESC
+      LIMIT ?
+    `);
+
+    const rows = stmt.all(limit) as Record<string, unknown>[];
+    return rows.map((row) => this.hydrateMemoryEntry(row));
   }
 
   /**
@@ -328,11 +349,61 @@ export class MemoryManager {
    */
   deleteSessionMemory(sessionId: string): void {
     try {
-      const stmt = this.db.prepare('DELETE FROM memory_entries WHERE session_id = ?');
-      stmt.run(sessionId);
+      const deleteFts = this.db.prepare('DELETE FROM memory_fts WHERE session_id = ?');
+      const deleteEntries = this.db.prepare('DELETE FROM memory_entries WHERE session_id = ?');
+      deleteFts.run(sessionId);
+      deleteEntries.run(sessionId);
     } catch (error) {
       logError('[MemoryManager] Error deleting session memory:', error);
     }
   }
-}
 
+  deleteMemoryEntry(entryId: string): void {
+    try {
+      const deleteFts = this.db.prepare('DELETE FROM memory_fts WHERE entry_id = ?');
+      const deleteEntries = this.db.prepare('DELETE FROM memory_entries WHERE id = ?');
+      deleteFts.run(entryId);
+      deleteEntries.run(entryId);
+    } catch (error) {
+      logError('[MemoryManager] Error deleting memory entry:', error);
+    }
+  }
+
+  private hydrateMemoryEntry(row: Record<string, unknown>): MemoryEntry {
+    let metadata: MemoryMetadata;
+    try {
+      metadata = JSON.parse(row.metadata as string) as MemoryMetadata;
+    } catch {
+      metadata = {
+        source: 'unknown',
+        timestamp: row.created_at as number,
+        tags: [],
+      };
+    }
+
+    return this.enrichMemoryEntry({
+      id: row.id as string,
+      sessionId: row.session_id as string,
+      content: row.content as string,
+      metadata,
+      createdAt: row.created_at as number,
+    }, row.session_title as string | null | undefined);
+  }
+
+  private enrichMemoryEntry(entry: MemoryEntry, sessionTitle?: string | null): MemoryEntry {
+    if (!sessionTitle) {
+      const titleRow = this.db
+        .prepare('SELECT title FROM sessions WHERE id = ?')
+        .get(entry.sessionId) as { title?: string } | undefined;
+      sessionTitle = titleRow?.title;
+    }
+
+    return {
+      ...entry,
+      metadata: {
+        ...entry.metadata,
+        sessionTitle: sessionTitle || entry.metadata.sessionTitle,
+      },
+    };
+  }
+}

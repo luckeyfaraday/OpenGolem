@@ -3,7 +3,22 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import { MessageCard } from './MessageCard';
+import { SlashCommandMenu } from './SlashCommandMenu';
 import type { Message, ContentBlock } from '../types';
+import { getInitialSessionTitle } from '../../shared/session-title';
+import {
+  buildSlashCommandHelpText,
+  buildSlashCommandMemoryHelpText,
+  buildSlashCommandMemoryText,
+  buildSlashCommandReviewPrompt,
+  getSlashCommandSuggestions,
+  parseMemoryCommandArgs,
+  buildSlashCommandUsageText,
+  buildSlashCommandWhereText,
+  buildUnknownSlashCommandText,
+  isKnownSlashCommand,
+  parseSlashCommand,
+} from '../utils/slash-commands';
 import { Send, Square, Plus, Loader2, Plug, X, Clock } from 'lucide-react';
 
 type AttachedFile = {
@@ -25,9 +40,15 @@ export function ChatView() {
   const pendingTurnsBySession = useAppStore((s) => s.pendingTurnsBySession);
   const executionClockBySession = useAppStore((s) => s.executionClockBySession);
   const appConfig = useAppStore((s) => s.appConfig);
-  const { continueSession, stopSession, isElectron } = useIPC();
+  const workingDir = useAppStore((s) => s.workingDir);
+  const addMessage = useAppStore((s) => s.addMessage);
+  const setActiveSession = useAppStore((s) => s.setActiveSession);
+  const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
+  const { continueSession, startSession, stopSession, addMemory, searchMemory, listMemory, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedSlashCommandIndex, setSelectedSlashCommandIndex] = useState(0);
   const [activeConnectors, setActiveConnectors] = useState<any[]>([]);
   const [showConnectorLabel, setShowConnectorLabel] = useState(true);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -62,6 +83,7 @@ export function ChatView() {
   const pendingCount = pendingTurns.length;
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
+  const slashSuggestions = useMemo(() => getSlashCommandSuggestions(prompt), [prompt]);
 
   const displayedMessages = useMemo(() => {
     if (!activeSessionId) return messages;
@@ -245,6 +267,12 @@ export function ChatView() {
   useEffect(() => {
     textareaRef.current?.focus();
   }, [activeSessionId]);
+
+  useEffect(() => {
+    setSelectedSlashCommandIndex((current) =>
+      slashSuggestions.length === 0 ? 0 : Math.min(current, slashSuggestions.length - 1)
+    );
+  }, [slashSuggestions]);
 
   // Handle paste event for images
   const handlePaste = async (e: React.ClipboardEvent) => {
@@ -535,9 +563,10 @@ export function ChatView() {
 
     // Get value from ref to handle both controlled and uncontrolled cases
     const currentPrompt = textareaRef.current?.value || prompt;
+    const trimmedPrompt = currentPrompt.trim();
 
     if (
-      (!currentPrompt.trim() && pastedImages.length === 0 && attachedFiles.length === 0) ||
+      (!trimmedPrompt && pastedImages.length === 0 && attachedFiles.length === 0) ||
       !activeSessionId ||
       isSubmitting
     )
@@ -545,6 +574,117 @@ export function ChatView() {
 
     setIsSubmitting(true);
     try {
+      const clearComposer = () => {
+        setPrompt('');
+        if (textareaRef.current) {
+          textareaRef.current.value = '';
+        }
+        pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
+        setPastedImages([]);
+        setAttachedFiles([]);
+      };
+
+      const pushLocalCommandMessage = (text: string) => {
+        addMessage(activeSessionId, {
+          id: `slash-${Date.now()}`,
+          sessionId: activeSessionId,
+          role: 'system',
+          content: [{ type: 'text', text }],
+          timestamp: Date.now(),
+        });
+      };
+
+      const slashCommand = parseSlashCommand(trimmedPrompt);
+      if (slashCommand) {
+        if (pastedImages.length > 0 || attachedFiles.length > 0) {
+          setGlobalNotice({
+            id: `notice-slash-attachments-${Date.now()}`,
+            type: 'warning',
+            message: 'Slash commands do not support attachments yet.',
+          });
+          return;
+        }
+
+        if (!isKnownSlashCommand(slashCommand.name)) {
+          pushLocalCommandMessage(buildUnknownSlashCommandText(slashCommand.name));
+          clearComposer();
+          return;
+        }
+
+        switch (slashCommand.name) {
+          case 'help':
+            pushLocalCommandMessage(buildSlashCommandHelpText());
+            clearComposer();
+            return;
+          case 'memory': {
+            const memoryCommand = parseMemoryCommandArgs(slashCommand.args);
+            if (memoryCommand.kind === 'help') {
+              pushLocalCommandMessage(buildSlashCommandMemoryHelpText());
+              clearComposer();
+              return;
+            }
+            if (memoryCommand.kind === 'invalid') {
+              pushLocalCommandMessage(memoryCommand.message);
+              clearComposer();
+              return;
+            }
+            if (memoryCommand.kind === 'add') {
+              const entry = await addMemory(activeSessionId, memoryCommand.content);
+              pushLocalCommandMessage(
+                entry
+                  ? `Saved memory for ${entry.metadata.sessionTitle || activeSession?.title || 'this chat'}.`
+                  : 'Failed to save memory.'
+              );
+              clearComposer();
+              return;
+            }
+            if (memoryCommand.kind === 'search') {
+              const entries = await searchMemory(memoryCommand.query, memoryCommand.limit);
+              pushLocalCommandMessage(
+                buildSlashCommandMemoryText(entries, `Memory search: ${memoryCommand.query}`)
+              );
+              clearComposer();
+              return;
+            }
+            const entries = await listMemory(memoryCommand.limit);
+            pushLocalCommandMessage(buildSlashCommandMemoryText(entries, 'Recent memories:'));
+            clearComposer();
+            return;
+          }
+          case 'where':
+            pushLocalCommandMessage(
+              buildSlashCommandWhereText({
+                session: activeSession,
+                workingDir,
+                model: appConfig?.model || null,
+              })
+            );
+            clearComposer();
+            return;
+          case 'usage':
+            pushLocalCommandMessage(buildSlashCommandUsageText(messages));
+            clearComposer();
+            return;
+          case 'new':
+            clearComposer();
+            if (!slashCommand.args) {
+              setActiveSession(null);
+              setShowSettings(false);
+              return;
+            }
+            await startSession(
+              getInitialSessionTitle(slashCommand.args),
+              slashCommand.args,
+              activeSession?.cwd || workingDir || undefined
+            );
+            return;
+          case 'review':
+            await continueSession(activeSessionId, buildSlashCommandReviewPrompt(slashCommand.args));
+            clearComposer();
+            return;
+        }
+      }
+
       // Build content blocks
       const contentBlocks: ContentBlock[] = [];
 
@@ -573,10 +713,10 @@ export function ChatView() {
       });
 
       // Add text if present
-      if (currentPrompt.trim()) {
+      if (trimmedPrompt) {
         contentBlocks.push({
           type: 'text',
-          text: currentPrompt.trim(),
+          text: trimmedPrompt,
         });
       }
 
@@ -584,17 +724,24 @@ export function ChatView() {
       await continueSession(activeSessionId, contentBlocks);
 
       // Clean up
-      setPrompt('');
-      if (textareaRef.current) {
-        textareaRef.current.value = '';
-      }
-      pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
-      setPastedImages([]);
-      setAttachedFiles([]);
+      clearComposer();
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const applySlashCommand = useCallback((commandName: string) => {
+    const nextValue = `/${commandName} `;
+    setPrompt(nextValue);
+    setSelectedSlashCommandIndex(0);
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.value = nextValue;
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(nextValue.length, nextValue.length);
+      }
+    });
+  }, []);
 
   const handleStop = () => {
     if (activeSessionId) {
@@ -758,6 +905,12 @@ export function ChatView() {
               </div>
             )}
 
+            <SlashCommandMenu
+              commands={slashSuggestions}
+              selectedIndex={selectedSlashCommandIndex}
+              onSelect={(command) => applySlashCommand(command.name)}
+            />
+
             <div
               className={`flex items-end gap-2 p-3.5 rounded-[1.75rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
                 isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
@@ -784,6 +937,32 @@ export function ChatView() {
                 }}
                 onPaste={handlePaste}
                 onKeyDown={(e) => {
+                  const slashSelectionText = (textareaRef.current?.value || prompt).trimStart();
+                  const shouldApplySlashSelection =
+                    slashSuggestions.length > 0 && /^\/\S*$/.test(slashSelectionText);
+
+                  if (e.key === 'ArrowDown' && slashSuggestions.length > 0) {
+                    e.preventDefault();
+                    setSelectedSlashCommandIndex((current) =>
+                      (current + 1) % slashSuggestions.length
+                    );
+                    return;
+                  }
+
+                  if (e.key === 'ArrowUp' && slashSuggestions.length > 0) {
+                    e.preventDefault();
+                    setSelectedSlashCommandIndex((current) =>
+                      (current - 1 + slashSuggestions.length) % slashSuggestions.length
+                    );
+                    return;
+                  }
+
+                  if ((e.key === 'Tab' || e.key === 'Enter') && shouldApplySlashSelection) {
+                    e.preventDefault();
+                    applySlashCommand(slashSuggestions[selectedSlashCommandIndex].name);
+                    return;
+                  }
+
                   // Enter to send, Shift+Enter for new line
                   if (e.key === 'Enter' && !e.shiftKey) {
                     if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {

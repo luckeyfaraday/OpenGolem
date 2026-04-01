@@ -465,6 +465,9 @@ function APISettingsTab() {
     useCustomModel,
     contextWindow,
     maxTokens,
+    currentPricingOverrideKey,
+    currentPricingOverrideInput,
+    currentPricingOverrideOutput,
     modelInputPlaceholder,
     modelInputHint,
     presets,
@@ -498,9 +501,12 @@ function APISettingsTab() {
     setBaseUrl,
     setModel,
     setCustomModel,
+    setPricingOverrideInput,
+    setPricingOverrideOutput,
     setContextWindow,
     setMaxTokens,
     toggleCustomModel,
+    clearPricingOverride,
     setEnableThinking,
     applyCommonProviderSetup,
     changeProvider,
@@ -866,6 +872,58 @@ function APISettingsTab() {
           onApplySetup={applyCommonProviderSetup}
         />
       )}
+
+      <div className="space-y-3 py-5 border-b border-border-muted">
+        <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
+          <Cpu className="w-4 h-4" />
+          Pricing override
+        </label>
+        <p className="text-xs leading-5 text-text-muted">
+          Optional. Set custom USD per 1M token pricing for the current provider/model when built-in pricing is unavailable or you want to override it.
+        </p>
+        <div className="rounded-lg border border-border-muted bg-background/40 px-4 py-3 text-xs text-text-muted">
+          Target: {currentPricingOverrideKey || 'Select a model first'}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1">
+              Input USD / 1M
+            </label>
+            <input
+              type="number"
+              min={0}
+              step="0.0001"
+              value={currentPricingOverrideInput}
+              onChange={(e) => setPricingOverrideInput(e.target.value)}
+              placeholder="0.0000"
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-text-primary text-sm placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1">
+              Output USD / 1M
+            </label>
+            <input
+              type="number"
+              min={0}
+              step="0.0001"
+              value={currentPricingOverrideOutput}
+              onChange={(e) => setPricingOverrideOutput(e.target.value)}
+              placeholder="0.0000"
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-text-primary text-sm placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={clearPricingOverride}
+            className="text-xs px-3 py-2 rounded-lg border border-border-muted text-text-secondary hover:bg-surface-hover transition-colors"
+          >
+            Clear override
+          </button>
+        </div>
+      </div>
 
       {/* Enable Thinking Mode */}
       <div className="space-y-3 py-5 border-b border-border-muted">

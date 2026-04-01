@@ -51,6 +51,14 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
     expect(agentRunnerContent).toContain('const customTools = [...builtInCustomTools, ...mcpCustomTools];');
   });
 
+  it('uses the shared stronger retry policy and surfaces retry lifecycle events', () => {
+    expect(agentRunnerContent).toContain("DEFAULT_PI_RETRY_SETTINGS");
+    expect(agentRunnerContent).toContain("retry: DEFAULT_PI_RETRY_SETTINGS");
+    expect(agentRunnerContent).toContain("case 'auto_retry_start': {");
+    expect(agentRunnerContent).toContain("case 'auto_retry_end': {");
+    expect(agentRunnerContent).toContain('Transient upstream failure detected, waiting for automatic retry');
+  });
+
   it('nudges the model to proceed with reasonable assumptions', () => {
     expect(agentRunnerContent).toContain('proceed immediately with reasonable assumptions');
     expect(agentRunnerContent).toContain('within two days');

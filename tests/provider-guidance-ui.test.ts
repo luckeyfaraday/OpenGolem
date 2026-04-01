@@ -20,5 +20,7 @@ describe('provider guidance UI wiring', () => {
     expect(source).toContain('GuidanceInlineHint');
     expect(source).toContain('onApplySetup={applyCommonProviderSetup}');
     expect(source).toContain('<ApiDiagnosticsPanel');
+    expect(source).toContain('Pricing override');
+    expect(source).toContain('currentPricingOverrideKey');
   });
 });

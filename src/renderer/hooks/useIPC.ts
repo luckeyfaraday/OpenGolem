@@ -6,6 +6,7 @@ import type {
   PermissionResult,
   Session,
   Message,
+  MemoryEntry,
   TraceStep,
   ContentBlock,
 } from '../types';
@@ -192,7 +193,11 @@ export function useIPC() {
           break;
 
         case 'permission.request':
-          store.setPendingPermission(event.payload);
+          store.addPendingPermission(event.payload);
+          break;
+
+        case 'permission.dismiss':
+          store.removePendingPermission(event.payload.toolUseId);
           break;
 
         case 'sudo.password.request':
@@ -316,7 +321,7 @@ export function useIPC() {
   const updateSession = useAppStore((s) => s.updateSession);
   const addMessage = useAppStore((s) => s.addMessage);
   const setLoading = useAppStore((s) => s.setLoading);
-  const setPendingPermission = useAppStore((s) => s.setPendingPermission);
+  const removePendingPermission = useAppStore((s) => s.removePendingPermission);
   const clearActiveTurn = useAppStore((s) => s.clearActiveTurn);
   const activateNextTurn = useAppStore((s) => s.activateNextTurn);
   const clearPendingTurns = useAppStore((s) => s.clearPendingTurns);
@@ -620,15 +625,77 @@ export function useIPC() {
     [invoke]
   );
 
+  const addMemory = useCallback(
+    async (sessionId: string, content: string, tags?: string[]): Promise<MemoryEntry | null> => {
+      if (!isElectron) {
+        return {
+          id: `mock-memory-${Date.now()}`,
+          sessionId,
+          content,
+          metadata: {
+            source: 'slash-command',
+            timestamp: Date.now(),
+            tags: tags || [],
+          },
+          createdAt: Date.now(),
+        };
+      }
+      return invoke<MemoryEntry>({
+        type: 'memory.add',
+        payload: { sessionId, content, tags },
+      });
+    },
+    [invoke]
+  );
+
+  const searchMemory = useCallback(
+    async (query: string, limit?: number): Promise<MemoryEntry[]> => {
+      if (!isElectron) {
+        return [];
+      }
+      return invoke<MemoryEntry[]>({
+        type: 'memory.search',
+        payload: { query, limit },
+      });
+    },
+    [invoke]
+  );
+
+  const listMemory = useCallback(
+    async (limit?: number): Promise<MemoryEntry[]> => {
+      if (!isElectron) {
+        return [];
+      }
+      return invoke<MemoryEntry[]>({
+        type: 'memory.list',
+        payload: { limit },
+      });
+    },
+    [invoke]
+  );
+
+  const deleteMemory = useCallback(
+    async (entryId: string): Promise<void> => {
+      if (!isElectron) {
+        return;
+      }
+      await invoke<void>({
+        type: 'memory.delete',
+        payload: { entryId },
+      });
+    },
+    [invoke]
+  );
+
   const respondToPermission = useCallback(
     (toolUseId: string, result: PermissionResult) => {
       send({
         type: 'permission.response',
         payload: { toolUseId, result },
       });
-      setPendingPermission(null);
+      removePendingPermission(toolUseId);
     },
-    [send, setPendingPermission]
+    [removePendingPermission, send]
   );
 
   const setPendingSudoPassword = useAppStore((s) => s.setPendingSudoPassword);
@@ -693,6 +760,10 @@ export function useIPC() {
     listSessions,
     getSessionMessages,
     getSessionTraceSteps,
+    addMemory,
+    deleteMemory,
+    searchMemory,
+    listMemory,
     respondToPermission,
     respondToSudoPassword,
     selectFolder,

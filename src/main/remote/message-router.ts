@@ -16,11 +16,20 @@ import type {
   ChannelType,
 } from './types';
 import type { Message, ContentBlock, TextContent } from '../../renderer/types/index';
+import type { MemoryEntry } from '../../renderer/types/index';
 import {
+  buildRemoteCommandHelpText,
   buildRemoteSessionBanner,
+  DEFAULT_REMOTE_QUICK_ACTIONS,
+  findRemoteSessionBySwitchTarget,
   formatRemoteHistory,
+  formatRemoteMemory,
+  formatRemoteSessionList,
+  formatRemoteUsage,
+  parseMemoryCommandArgs,
   parseRemoteCommand,
   stripRemoteMentions,
+  toRemoteReviewPrompt,
 } from './remote-command-utils';
 
 // Callback type for sending responses back to channels
@@ -40,8 +49,15 @@ type AgentCallback = (
 type WorkingDirectoryValidator = (cwd: string) => Promise<string | null> | string | null;
 type TypingIndicatorCallback = (channelType: ChannelType, channelId: string) => Promise<void>;
 type StopSessionCallback = (sessionId: string) => Promise<void>;
-type ResetSessionCallback = (remoteSessionId: string, actualSessionId?: string) => Promise<void> | void;
 type SessionMessagesCallback = (sessionId: string) => Promise<Message[]> | Message[];
+type RenameSessionCallback = (sessionId: string, title: string) => Promise<void> | void;
+type AddMemoryCallback = (
+  sessionId: string,
+  content: string,
+  tags?: string[]
+) => Promise<MemoryEntry> | MemoryEntry;
+type SearchMemoryCallback = (query: string, limit?: number) => Promise<MemoryEntry[]> | MemoryEntry[];
+type ListMemoryCallback = (limit?: number) => Promise<MemoryEntry[]> | MemoryEntry[];
 
 /**
  * Message queue item
@@ -52,8 +68,9 @@ interface QueuedMessage {
 }
 
 export class MessageRouter {
-  // Session mappings: channelType:channelId[:userId] -> session
+  // Session mappings: remoteSessionId -> session
   private sessionMappings: Map<string, RemoteSessionMapping> = new Map();
+  private activeSessionByBaseKey: Map<string, string> = new Map();
 
   // Message queues per session
   private messageQueues: Map<string, QueuedMessage[]> = new Map();
@@ -67,8 +84,11 @@ export class MessageRouter {
   private workingDirectoryValidator?: WorkingDirectoryValidator;
   private typingIndicatorCallback?: TypingIndicatorCallback;
   private stopSessionCallback?: StopSessionCallback;
-  private resetSessionCallback?: ResetSessionCallback;
   private sessionMessagesCallback?: SessionMessagesCallback;
+  private renameSessionCallback?: RenameSessionCallback;
+  private addMemoryCallback?: AddMemoryCallback;
+  private searchMemoryCallback?: SearchMemoryCallback;
+  private listMemoryCallback?: ListMemoryCallback;
 
   // Accumulated response text per session (for streaming)
   private responseBuffers: Map<string, string> = new Map();
@@ -114,11 +134,25 @@ export class MessageRouter {
         if (Array.isArray(data)) {
           for (const item of data) {
             if (item.sessionId && item.channelType && item.channelId) {
-              // Reconstruct sessionKey: DM uses userId, groups use channelId
-              const sessionKey = item.userId
+              const baseSessionKey = item.baseSessionKey || (item.userId
                 ? `${item.channelType}:dm:${item.userId}`
-                : `${item.channelType}:group:${item.channelId}`;
-              this.sessionMappings.set(sessionKey, item);
+                : `${item.channelType}:group:${item.channelId}`);
+              const mapping: RemoteSessionMapping = {
+                ...item,
+                baseSessionKey,
+                chatIndex: item.chatIndex || 1,
+                active: Boolean(item.active),
+              };
+              this.sessionMappings.set(mapping.sessionId, mapping);
+              if (mapping.active) {
+                this.activeSessionByBaseKey.set(baseSessionKey, mapping.sessionId);
+              }
+            }
+          }
+
+          for (const mapping of this.sessionMappings.values()) {
+            if (!this.activeSessionByBaseKey.has(mapping.baseSessionKey)) {
+              this.setActiveSessionForBaseKey(mapping.baseSessionKey, mapping.sessionId);
             }
           }
           log('[MessageRouter] Loaded session mappings from disk:', this.sessionMappings.size, 'sessions');
@@ -180,31 +214,38 @@ export class MessageRouter {
 
   setSessionControlCallbacks(callbacks: {
     stopSession?: StopSessionCallback;
-    resetSession?: ResetSessionCallback;
     getSessionMessages?: SessionMessagesCallback;
+    renameSession?: RenameSessionCallback;
+    addMemory?: AddMemoryCallback;
+    searchMemory?: SearchMemoryCallback;
+    listMemory?: ListMemoryCallback;
   }): void {
     this.stopSessionCallback = callbacks.stopSession;
-    this.resetSessionCallback = callbacks.resetSession;
     this.sessionMessagesCallback = callbacks.getSessionMessages;
+    this.renameSessionCallback = callbacks.renameSession;
+    this.addMemoryCallback = callbacks.addMemory;
+    this.searchMemoryCallback = callbacks.searchMemory;
+    this.listMemoryCallback = callbacks.listMemory;
   }
 
   /**
    * Route incoming message to agent
    */
   async routeMessage(message: RemoteMessage): Promise<void> {
-    const sessionKey = this.getSessionKey(message);
+    const baseSessionKey = this.getBaseSessionKey(message);
 
     log('[MessageRouter] Routing message:', {
-      sessionKey,
+      sessionKey: baseSessionKey,
       messageId: message.id,
       contentType: message.content.type,
     });
 
-    // Get or create session mapping
-    let mapping = this.sessionMappings.get(sessionKey);
+    // Get or create active session mapping
+    let mapping = this.getActiveMappingForBaseKey(baseSessionKey);
     if (!mapping) {
-      mapping = this.createSessionMapping(message, sessionKey);
-      this.sessionMappings.set(sessionKey, mapping);
+      mapping = this.createSessionMapping(message, baseSessionKey);
+      this.sessionMappings.set(mapping.sessionId, mapping);
+      this.setActiveSessionForBaseKey(baseSessionKey, mapping.sessionId);
       this.saveSessionMappings();
       log('[MessageRouter] Created new session mapping:', mapping);
     }
@@ -212,7 +253,7 @@ export class MessageRouter {
     // Update last active time
     mapping.lastActiveAt = Date.now();
 
-    if (await this.handleImmediateCommand(message, sessionKey, mapping)) {
+    if (await this.handleImmediateCommand(message, baseSessionKey, mapping)) {
       this.saveSessionMappings();
       return;
     }
@@ -229,7 +270,7 @@ export class MessageRouter {
    * For DMs: channelType:userId
    * For groups: channelType:channelId
    */
-  private getSessionKey(message: RemoteMessage): string {
+  private getBaseSessionKey(message: RemoteMessage): string {
     if (message.isGroup) {
       return `${message.channelType}:group:${message.channelId}`;
     } else {
@@ -240,39 +281,44 @@ export class MessageRouter {
   /**
    * Create new session mapping
    */
-  private createSessionMapping(message: RemoteMessage, sessionKey: string): RemoteSessionMapping {
-    // Use sessionKey as sessionId so it's stable across restarts.
-    // This ensures the remote session ID is deterministic for a given
-    // sender/channel, avoiding "session not found" errors after restart.
-    const sessionId = sessionKey;
+  private createSessionMapping(message: RemoteMessage, baseSessionKey: string, pendingTitle?: string): RemoteSessionMapping {
+    const existingMappings = this.getMappingsForBaseKey(baseSessionKey);
+    const chatIndex = existingMappings.reduce((max, mapping) => Math.max(max, mapping.chatIndex || 0), 0) + 1;
+    const sessionId = chatIndex === 1 ? baseSessionKey : `${baseSessionKey}:chat:${chatIndex}`;
 
     return {
+      baseSessionKey,
       channelType: message.channelType,
       channelId: message.channelId,
       userId: message.isGroup ? undefined : message.sender.id,
       sessionId,
+      chatIndex,
+      active: true,
+      pendingTitle: pendingTitle || undefined,
       announceSession: true,
       createdAt: Date.now(),
       lastActiveAt: Date.now(),
     };
   }
 
-  private ensureSessionMapping(
-    message: RemoteMessage,
-    sessionKey: string,
-    sessionId: string
-  ): RemoteSessionMapping {
-    const existing = this.sessionMappings.get(sessionKey);
-    if (existing) {
-      return existing;
-    }
+  private getMappingsForBaseKey(baseSessionKey: string): RemoteSessionMapping[] {
+    return Array.from(this.sessionMappings.values()).filter((mapping) => mapping.baseSessionKey === baseSessionKey);
+  }
 
-    const created = {
-      ...this.createSessionMapping(message, sessionKey),
-      sessionId,
-    };
-    this.sessionMappings.set(sessionKey, created);
-    return created;
+  private getActiveMappingForBaseKey(baseSessionKey: string): RemoteSessionMapping | undefined {
+    const activeSessionId = this.activeSessionByBaseKey.get(baseSessionKey);
+    return activeSessionId ? this.sessionMappings.get(activeSessionId) : undefined;
+  }
+
+  private setActiveSessionForBaseKey(baseSessionKey: string, sessionId: string): void {
+    for (const mapping of this.getMappingsForBaseKey(baseSessionKey)) {
+      mapping.active = mapping.sessionId === sessionId;
+    }
+    this.activeSessionByBaseKey.set(baseSessionKey, sessionId);
+  }
+
+  private ensureSessionMapping(sessionId: string): RemoteSessionMapping | undefined {
+    return this.sessionMappings.get(sessionId);
   }
 
   private resolveWorkingDirectory(
@@ -290,7 +336,7 @@ export class MessageRouter {
 
   private async handleImmediateCommand(
     message: RemoteMessage,
-    sessionKey: string,
+    baseSessionKey: string,
     mapping: RemoteSessionMapping
   ): Promise<boolean> {
     if (message.content.type !== 'text' || !message.content.text) {
@@ -303,21 +349,115 @@ export class MessageRouter {
     }
 
     switch (command.name) {
+      case 'help':
+        await this.sendTextResponse(message, buildRemoteCommandHelpText(), {
+          quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+        });
+        return true;
       case 'where':
-        await this.sendTextResponse(message, buildRemoteSessionBanner(mapping, this.defaultWorkingDirectory));
+        await this.sendTextResponse(message, buildRemoteSessionBanner(mapping, this.defaultWorkingDirectory), {
+          quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+        });
+        return true;
+      case 'usage':
+        await this.handleUsageCommand(message, mapping);
         return true;
       case 'history':
         await this.handleHistoryCommand(message, mapping);
+        return true;
+      case 'rename':
+        await this.handleRenameCommand(message, mapping, command.args);
+        return true;
+      case 'list':
+        await this.handleListCommand(message, baseSessionKey);
+        return true;
+      case 'memory':
+        await this.handleMemoryCommand(message, mapping, command.args);
+        return true;
+      case 'switch':
+        await this.handleSwitchCommand(message, baseSessionKey, command.args);
         return true;
       case 'stop':
         await this.handleStopCommand(message, mapping);
         return true;
       case 'new':
-        await this.handleNewCommand(message, sessionKey, mapping, command.args);
+        await this.handleNewCommand(message, baseSessionKey, mapping, command.args);
         return true;
+      case 'review':
+        return false;
       default:
         return false;
     }
+  }
+
+  private async handleListCommand(
+    message: RemoteMessage,
+    baseSessionKey: string
+  ): Promise<void> {
+    const mappings = this.getMappingsForBaseKey(baseSessionKey);
+    await this.sendTextResponse(message, formatRemoteSessionList(mappings), {
+      quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+    });
+  }
+
+  private async handleSwitchCommand(
+    message: RemoteMessage,
+    baseSessionKey: string,
+    args: string
+  ): Promise<void> {
+    const mappings = this.getMappingsForBaseKey(baseSessionKey);
+    if (mappings.length === 0) {
+      await this.sendTextResponse(message, 'No saved chats yet for this conversation.', {
+        quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+      });
+      return;
+    }
+
+    const target = findRemoteSessionBySwitchTarget(mappings, args);
+    if (!target) {
+      await this.sendTextResponse(
+        message,
+        `Could not find chat "${args}".\n\n${formatRemoteSessionList(mappings)}`,
+        { quickActions: DEFAULT_REMOTE_QUICK_ACTIONS }
+      );
+      return;
+    }
+
+    this.setActiveSessionForBaseKey(baseSessionKey, target.sessionId);
+    target.announceSession = true;
+    target.lastActiveAt = Date.now();
+    await this.sendTextResponse(
+      message,
+      `Switched to chat #${target.chatIndex}: ${target.title || target.pendingTitle || 'Untitled chat'}`,
+      { quickActions: DEFAULT_REMOTE_QUICK_ACTIONS }
+    );
+  }
+
+  private async handleRenameCommand(
+    message: RemoteMessage,
+    mapping: RemoteSessionMapping,
+    args: string
+  ): Promise<void> {
+    const title = args.trim();
+    if (!title) {
+      await this.sendTextResponse(message, 'Usage: /rename <title>', {
+        quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+      });
+      return;
+    }
+
+    mapping.title = title;
+    mapping.pendingTitle = undefined;
+    if (mapping.actualSessionId && this.renameSessionCallback) {
+      await this.renameSessionCallback(mapping.actualSessionId, title);
+    }
+    this.saveSessionMappings();
+
+    await this.sendTextResponse(
+      message,
+      `Renamed chat #${mapping.chatIndex} to: ${title}`,
+      { quickActions: DEFAULT_REMOTE_QUICK_ACTIONS }
+    );
   }
 
   private async handleHistoryCommand(
@@ -325,13 +465,34 @@ export class MessageRouter {
     mapping: RemoteSessionMapping
   ): Promise<void> {
     if (!mapping.actualSessionId || !this.sessionMessagesCallback) {
-      await this.sendTextResponse(message, 'No history yet for this chat.');
+      await this.sendTextResponse(message, 'No history yet for this chat.', {
+        quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+      });
       return;
     }
 
     const messages = await this.sessionMessagesCallback(mapping.actualSessionId);
     const banner = buildRemoteSessionBanner(mapping, this.defaultWorkingDirectory);
-    await this.sendTextResponse(message, `${banner}\n\nRecent turns:\n${formatRemoteHistory(messages)}`);
+    await this.sendTextResponse(message, `${banner}\n\nRecent turns:\n${formatRemoteHistory(messages)}`, {
+      quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+    });
+  }
+
+  private async handleUsageCommand(
+    message: RemoteMessage,
+    mapping: RemoteSessionMapping
+  ): Promise<void> {
+    if (!mapping.actualSessionId || !this.sessionMessagesCallback) {
+      await this.sendTextResponse(message, 'No token usage recorded for this chat yet.', {
+        quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+      });
+      return;
+    }
+
+    const messages = await this.sessionMessagesCallback(mapping.actualSessionId);
+    await this.sendTextResponse(message, formatRemoteUsage(messages), {
+      quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+    });
   }
 
   private async handleStopCommand(
@@ -339,39 +500,85 @@ export class MessageRouter {
     mapping: RemoteSessionMapping
   ): Promise<void> {
     if (!mapping.actualSessionId || !this.stopSessionCallback) {
-      await this.sendTextResponse(message, 'No active run to stop in this chat.');
+      await this.sendTextResponse(message, 'No active run to stop in this chat.', {
+        quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+      });
       return;
     }
 
     await this.stopSessionCallback(mapping.actualSessionId);
     this.clearQueuedMessages(mapping.sessionId);
     this.stopTypingIndicator(mapping.sessionId);
-    await this.sendTextResponse(message, 'Stopped the active run for this chat.');
+    await this.sendTextResponse(message, 'Stopped the active run for this chat.', {
+      quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+    });
   }
 
   private async handleNewCommand(
     message: RemoteMessage,
-    _sessionKey: string,
+    baseSessionKey: string,
     mapping: RemoteSessionMapping,
     args: string
   ): Promise<void> {
     if (mapping.actualSessionId && this.stopSessionCallback) {
       await this.stopSessionCallback(mapping.actualSessionId);
     }
-    await this.resetSessionCallback?.(mapping.sessionId, mapping.actualSessionId);
-
     this.clearQueuedMessages(mapping.sessionId);
     this.stopTypingIndicator(mapping.sessionId);
-
-    mapping.actualSessionId = undefined;
-    mapping.title = undefined;
-    mapping.pendingTitle = args || undefined;
-    mapping.announceSession = true;
+    const created = this.createSessionMapping(message, baseSessionKey, args);
+    this.sessionMappings.set(created.sessionId, created);
+    this.setActiveSessionForBaseKey(baseSessionKey, created.sessionId);
 
     await this.sendTextResponse(
       message,
-      `Started a fresh chat.${args ? ` Title: ${args}` : ''}`
+      `Started a fresh chat #${created.chatIndex}.${args ? ` Title: ${args}` : ''}`,
+      {
+        quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+      }
     );
+  }
+
+  private async handleMemoryCommand(
+    message: RemoteMessage,
+    mapping: RemoteSessionMapping,
+    args: string
+  ): Promise<void> {
+    const parsed = parseMemoryCommandArgs(args);
+
+    switch (parsed.kind) {
+      case 'help':
+      case 'invalid':
+        await this.sendTextResponse(message, parsed.kind === 'invalid' ? parsed.message : buildRemoteCommandHelpText(), {
+          quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+        });
+        return;
+      case 'add':
+        if (!mapping.actualSessionId || !this.addMemoryCallback) {
+          await this.sendTextResponse(message, 'Memory add requires an active chat with at least one local session.', {
+            quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+          });
+          return;
+        }
+        await this.addMemoryCallback(mapping.actualSessionId, parsed.content, []);
+        await this.sendTextResponse(message, `Saved memory for chat #${mapping.chatIndex}.`, {
+          quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+        });
+        return;
+      case 'search': {
+        const results = this.searchMemoryCallback ? await this.searchMemoryCallback(parsed.query, parsed.limit) : [];
+        await this.sendTextResponse(message, formatRemoteMemory(results, `Memory search: ${parsed.query}`), {
+          quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+        });
+        return;
+      }
+      case 'list': {
+        const results = this.listMemoryCallback ? await this.listMemoryCallback(parsed.limit) : [];
+        await this.sendTextResponse(message, formatRemoteMemory(results, 'Recent memories:'), {
+          quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
+        });
+        return;
+      }
+    }
   }
 
   private clearQueuedMessages(sessionId: string): void {
@@ -447,8 +654,8 @@ export class MessageRouter {
     const { prompt, cwd } = this.extractPromptAndCwd(message);
 
     // Get session mapping to update/get working directory
-    const sessionKey = this.getSessionKey(message);
-    const mapping = this.sessionMappings.get(sessionKey);
+    const baseSessionKey = this.getBaseSessionKey(message);
+    const mapping = this.getActiveMappingForBaseKey(baseSessionKey);
     const baseWorkingDirectory = mapping?.workingDirectory || this.defaultWorkingDirectory;
     const resolvedCwd = this.resolveWorkingDirectory(cwd, baseWorkingDirectory);
 
@@ -470,7 +677,11 @@ export class MessageRouter {
 
     // Handle !cd command (change directory without executing prompt)
     if (!prompt && resolvedCwd) {
-      const ensuredMapping = this.ensureSessionMapping(message, sessionKey, sessionId);
+      const ensuredMapping = this.ensureSessionMapping(sessionId);
+      if (!ensuredMapping) {
+        await this.sendErrorResponse(message, new Error('Remote chat mapping not found'));
+        return;
+      }
       ensuredMapping.workingDirectory = resolvedCwd;
       this.saveSessionMappings();
       log('[MessageRouter] Updated session working directory:', resolvedCwd);
@@ -515,7 +726,11 @@ export class MessageRouter {
       );
 
       if (resolvedCwd) {
-        const ensuredMapping = this.ensureSessionMapping(message, sessionKey, sessionId);
+        const ensuredMapping = this.ensureSessionMapping(sessionId);
+        if (!ensuredMapping) {
+          await this.sendErrorResponse(message, new Error('Remote chat mapping not found'));
+          return;
+        }
         ensuredMapping.workingDirectory = resolvedCwd;
         this.saveSessionMappings();
       }
@@ -581,7 +796,11 @@ export class MessageRouter {
     this.typingTimers.delete(sessionId);
   }
 
-  private async sendTextResponse(originalMessage: RemoteMessage, text: string): Promise<void> {
+  private async sendTextResponse(
+    originalMessage: RemoteMessage,
+    text: string,
+    options?: { quickActions?: typeof DEFAULT_REMOTE_QUICK_ACTIONS }
+  ): Promise<void> {
     if (!this.responseCallback) {
       return;
     }
@@ -592,6 +811,7 @@ export class MessageRouter {
       content: {
         type: 'text',
         text,
+        quickActions: options?.quickActions,
       },
       replyTo: originalMessage.id,
     });
@@ -678,6 +898,11 @@ export class MessageRouter {
         return { prompt: '', cwd };
       }
 
+      const slashCommand = parseRemoteCommand(text);
+      if (slashCommand?.name === 'review') {
+        return { prompt: toRemoteReviewPrompt(slashCommand.args), cwd };
+      }
+
       return { prompt: text || '你好', cwd };
     }
 
@@ -742,6 +967,7 @@ export class MessageRouter {
       content: {
         type: 'markdown',
         markdown: responseText,
+        quickActions: DEFAULT_REMOTE_QUICK_ACTIONS,
       },
       replyTo: originalMessage.id,
     };
@@ -786,7 +1012,7 @@ export class MessageRouter {
     const key = userId
       ? `${channelType}:dm:${userId}`
       : `${channelType}:group:${channelId}`;
-    return this.sessionMappings.get(key);
+    return this.getActiveMappingForBaseKey(key);
   }
 
   /**
@@ -800,12 +1026,7 @@ export class MessageRouter {
    * Get session mapping by remote session ID
    */
   getSessionMappingForRemoteSessionId(sessionId: string): RemoteSessionMapping | undefined {
-    for (const mapping of this.sessionMappings.values()) {
-      if (mapping.sessionId === sessionId) {
-        return mapping;
-      }
-    }
-    return undefined;
+    return this.sessionMappings.get(sessionId);
   }
 
   updateSessionMetadata(sessionId: string, updates: Partial<RemoteSessionMapping>): boolean {
@@ -855,19 +1076,30 @@ export class MessageRouter {
    * Clear session mapping
    */
   clearSession(sessionId: string): boolean {
-    for (const [key, mapping] of this.sessionMappings) {
-      if (mapping.sessionId === sessionId) {
-        this.sessionMappings.delete(key);
-        this.messageQueues.delete(sessionId);
-        this.responseBuffers.delete(sessionId);
-        this.processingSession.delete(sessionId);
-        this.stopTypingIndicator(sessionId);
-        this.saveSessionMappings();
-        log('[MessageRouter] Cleared session:', sessionId);
-        return true;
+    const mapping = this.sessionMappings.get(sessionId);
+    if (!mapping) {
+      return false;
+    }
+
+    this.sessionMappings.delete(sessionId);
+    this.messageQueues.delete(sessionId);
+    this.responseBuffers.delete(sessionId);
+    this.processingSession.delete(sessionId);
+    this.stopTypingIndicator(sessionId);
+
+    if (this.activeSessionByBaseKey.get(mapping.baseSessionKey) === sessionId) {
+      const fallback = this.getMappingsForBaseKey(mapping.baseSessionKey)
+        .sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
+      if (fallback) {
+        this.setActiveSessionForBaseKey(mapping.baseSessionKey, fallback.sessionId);
+      } else {
+        this.activeSessionByBaseKey.delete(mapping.baseSessionKey);
       }
     }
-    return false;
+
+    this.saveSessionMappings();
+    log('[MessageRouter] Cleared session:', sessionId);
+    return true;
   }
 
   /**
@@ -875,6 +1107,7 @@ export class MessageRouter {
    */
   clearAllSessions(): void {
     this.sessionMappings.clear();
+    this.activeSessionByBaseKey.clear();
     this.messageQueues.clear();
     this.responseBuffers.clear();
     this.processingSession.clear();
@@ -897,7 +1130,23 @@ export class MessageRouter {
         this.sessionMappings.delete(key);
         this.messageQueues.delete(mapping.sessionId);
         this.stopTypingIndicator(mapping.sessionId);
+        if (this.activeSessionByBaseKey.get(mapping.baseSessionKey) === mapping.sessionId) {
+          this.activeSessionByBaseKey.delete(mapping.baseSessionKey);
+        }
         cleaned++;
+      }
+    }
+
+    for (const baseSessionKey of Array.from(this.activeSessionByBaseKey.keys())) {
+      const activeSessionId = this.activeSessionByBaseKey.get(baseSessionKey);
+      if (activeSessionId && this.sessionMappings.has(activeSessionId)) {
+        continue;
+      }
+      const fallback = this.getMappingsForBaseKey(baseSessionKey).sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
+      if (fallback) {
+        this.setActiveSessionForBaseKey(baseSessionKey, fallback.sessionId);
+      } else {
+        this.activeSessionByBaseKey.delete(baseSessionKey);
       }
     }
 

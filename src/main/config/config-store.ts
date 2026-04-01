@@ -88,6 +88,11 @@ export interface ApiConfigSet {
   updatedAt: string;
 }
 
+export interface PricingOverride {
+  inputPerMillionUsd: number;
+  outputPerMillionUsd: number;
+}
+
 export interface AppConfig {
   // API Provider
   provider: ProviderType;
@@ -119,6 +124,9 @@ export interface AppConfig {
   // Optional: Global skills storage directory
   globalSkillsPath?: string;
 
+  // Optional: Manual pricing overrides keyed by provider::model
+  pricingOverrides?: Record<string, PricingOverride>;
+
   // Developer logs
   enableDevLogs: boolean;
 
@@ -146,6 +154,7 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'claudeCodePath',
   'defaultWorkdir',
   'globalSkillsPath',
+  'pricingOverrides',
   'enableDevLogs',
   'sandboxEnabled',
   'enableThinking',
@@ -245,6 +254,7 @@ const defaultConfig: AppConfig = {
   claudeCodePath: '',
   defaultWorkdir: '',
   globalSkillsPath: '',
+  pricingOverrides: {},
   enableDevLogs: true,
   sandboxEnabled: false,
   enableThinking: false,
@@ -423,6 +433,39 @@ function defaultProtocolForProvider(provider: ProviderType): CustomProtocolType 
     return 'gemini';
   }
   return 'anthropic';
+}
+
+function normalizePricingOverrides(value: unknown): Record<string, PricingOverride> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const normalized: Record<string, PricingOverride> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (!key.trim() || !entry || typeof entry !== 'object') {
+      continue;
+    }
+    const raw = entry as {
+      inputPerMillionUsd?: unknown;
+      outputPerMillionUsd?: unknown;
+    };
+    const input =
+      typeof raw.inputPerMillionUsd === 'number'
+        ? raw.inputPerMillionUsd
+        : Number(raw.inputPerMillionUsd);
+    const output =
+      typeof raw.outputPerMillionUsd === 'number'
+        ? raw.outputPerMillionUsd
+        : Number(raw.outputPerMillionUsd);
+    if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) {
+      continue;
+    }
+    normalized[key.trim()] = {
+      inputPerMillionUsd: input,
+      outputPerMillionUsd: output,
+    };
+  }
+  return normalized;
 }
 
 export class ConfigStore {
@@ -853,6 +896,7 @@ export class ConfigStore {
       claudeCodePath: typeof raw.claudeCodePath === 'string' ? raw.claudeCodePath : defaultConfig.claudeCodePath,
       defaultWorkdir: typeof raw.defaultWorkdir === 'string' ? raw.defaultWorkdir : defaultConfig.defaultWorkdir,
       globalSkillsPath: typeof raw.globalSkillsPath === 'string' ? raw.globalSkillsPath : defaultConfig.globalSkillsPath,
+      pricingOverrides: normalizePricingOverrides(raw.pricingOverrides),
       enableDevLogs: toBoolean(raw.enableDevLogs, defaultConfig.enableDevLogs),
       sandboxEnabled: toBoolean(raw.sandboxEnabled, defaultConfig.sandboxEnabled),
       enableThinking: projected.enableThinking,
@@ -1214,6 +1258,10 @@ export class ConfigStore {
       claudeCodePath: updates.claudeCodePath !== undefined ? updates.claudeCodePath : current.claudeCodePath,
       defaultWorkdir: updates.defaultWorkdir !== undefined ? updates.defaultWorkdir : current.defaultWorkdir,
       globalSkillsPath: updates.globalSkillsPath !== undefined ? updates.globalSkillsPath : current.globalSkillsPath,
+      pricingOverrides:
+        updates.pricingOverrides !== undefined
+          ? normalizePricingOverrides(updates.pricingOverrides)
+          : current.pricingOverrides,
       enableDevLogs: updates.enableDevLogs !== undefined ? updates.enableDevLogs : current.enableDevLogs,
       sandboxEnabled: updates.sandboxEnabled !== undefined ? updates.sandboxEnabled : current.sandboxEnabled,
       isConfigured: updates.isConfigured !== undefined ? updates.isConfigured : current.isConfigured,

@@ -462,6 +462,8 @@ export class FeishuChannel extends ChannelBase {
    * Send message to Feishu
    */
   private async sendMessage(chatId: string, content: any, replyTo?: string): Promise<void> {
+    content = this.withQuickActionHint(content);
+
     let msgType: string;
     let msgContent: any;
     

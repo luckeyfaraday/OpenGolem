@@ -86,4 +86,27 @@ describe('withRetry', () => {
     expect(delays).toEqual([100, 200]);
     vi.mocked(globalThis.setTimeout).mockRestore();
   });
+
+  it('uses a resolved retry delay when provided', async () => {
+    const delays: number[] = [];
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: Function, delay?: number) => {
+      if (delay && delay > 0) delays.push(delay);
+      fn();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    });
+
+    const op = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('429 too many requests'))
+      .mockResolvedValue('ok');
+
+    await withRetry(op, {
+      maxRetries: 2,
+      delayMs: 100,
+      resolveDelayMs: () => 2500,
+    });
+
+    expect(delays).toEqual([2500]);
+    vi.mocked(globalThis.setTimeout).mockRestore();
+  });
 });

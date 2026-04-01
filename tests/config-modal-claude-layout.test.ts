@@ -25,4 +25,13 @@ describe('ConfigModal Claude-style layout', () => {
     expect(source).toContain("'Qwen CLI'");
     expect(source).toContain("'MiniMax'");
   });
+
+  it('includes pricing override controls for the current provider and model', () => {
+    const source = fs.readFileSync(configModalPath, 'utf8');
+    expect(source).toContain('Pricing override');
+    expect(source).toContain('currentPricingOverrideKey');
+    expect(source).toContain('setPricingOverrideInput');
+    expect(source).toContain('setPricingOverrideOutput');
+    expect(source).toContain('Clear override');
+  });
 });

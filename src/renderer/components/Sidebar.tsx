@@ -15,6 +15,8 @@ import {
   ListChecks,
   Check,
   Clock3,
+  Database,
+  Shield,
 } from 'lucide-react';
 import type { Session } from '../types';
 
@@ -31,6 +33,7 @@ export function Sidebar() {
   const sessions = useAppStore((s) => s.sessions);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const settings = useAppStore((s) => s.settings);
+  const pendingPermissions = useAppStore((s) => s.pendingPermissions);
   const messagesBySession = useAppStore((s) => s.messagesBySession);
   const traceStepsBySession = useAppStore((s) => s.traceStepsBySession);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
@@ -41,6 +44,9 @@ export function Sidebar() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const setShowMemoryPanel = useAppStore((s) => s.setShowMemoryPanel);
+  const setShowTasksPanel = useAppStore((s) => s.setShowTasksPanel);
+  const setShowPermissionsPanel = useAppStore((s) => s.setShowPermissionsPanel);
   const setSettingsTab = useAppStore((s) => s.setSettingsTab);
   const { deleteSession, batchDeleteSessions, getSessionMessages, getSessionTraceSteps, isElectron } = useIPC();
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
@@ -148,6 +154,9 @@ export function Sidebar() {
   const handleSessionClick = useCallback(
     async (sessionId: string) => {
       setShowSettings(false);
+      setShowMemoryPanel(false);
+      setShowTasksPanel(false);
+      setShowPermissionsPanel(false);
 
       if (activeSessionId === sessionId) return;
 
@@ -184,6 +193,9 @@ export function Sidebar() {
       setActiveSession,
       setMessages,
       setShowSettings,
+      setShowMemoryPanel,
+      setShowTasksPanel,
+      setShowPermissionsPanel,
       setTraceSteps,
       traceStepsBySession,
     ]
@@ -192,6 +204,9 @@ export function Sidebar() {
   const handleNewSession = () => {
     setActiveSession(null);
     setShowSettings(false);
+    setShowMemoryPanel(false);
+    setShowTasksPanel(false);
+    setShowPermissionsPanel(false);
   };
 
   const handleDeleteSession = (e: React.MouseEvent, sessionId: string) => {
@@ -200,9 +215,33 @@ export function Sidebar() {
   };
 
   const handleOpenSettings = useCallback((tab: string | null = null) => {
+    setShowMemoryPanel(false);
+    setShowTasksPanel(false);
+    setShowPermissionsPanel(false);
     setSettingsTab(tab);
     setShowSettings(true);
-  }, [setSettingsTab, setShowSettings]);
+  }, [setSettingsTab, setShowMemoryPanel, setShowPermissionsPanel, setShowSettings, setShowTasksPanel]);
+
+  const handleOpenMemory = useCallback(() => {
+    setShowSettings(false);
+    setShowTasksPanel(false);
+    setShowPermissionsPanel(false);
+    setShowMemoryPanel(true);
+  }, [setShowMemoryPanel, setShowPermissionsPanel, setShowSettings, setShowTasksPanel]);
+
+  const handleOpenTasks = useCallback(() => {
+    setShowSettings(false);
+    setShowMemoryPanel(false);
+    setShowPermissionsPanel(false);
+    setShowTasksPanel(true);
+  }, [setShowMemoryPanel, setShowPermissionsPanel, setShowSettings, setShowTasksPanel]);
+
+  const handleOpenPermissions = useCallback(() => {
+    setShowSettings(false);
+    setShowMemoryPanel(false);
+    setShowTasksPanel(false);
+    setShowPermissionsPanel(true);
+  }, [setShowMemoryPanel, setShowPermissionsPanel, setShowSettings, setShowTasksPanel]);
 
   const toggleTheme = () => {
     const next = settings.theme === 'dark' ? 'light' : settings.theme === 'light' ? 'system' : 'dark';
@@ -234,11 +273,37 @@ export function Sidebar() {
             <Plus className="w-4 h-4" />
           </button>
           <button
+            onClick={handleOpenPermissions}
+            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary relative"
+            title="Approvals"
+          >
+            <Shield className="w-4 h-4" />
+            {pendingPermissions.length > 0 && (
+              <span className="absolute right-1.5 top-1.5 min-w-[1rem] h-4 rounded-full bg-warning px-1 text-[10px] leading-4 text-white text-center">
+                {pendingPermissions.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={handleOpenTasks}
+            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
+            title="Tasks"
+          >
+            <ListChecks className="w-4 h-4" />
+          </button>
+          <button
             onClick={() => handleOpenSettings('schedule')}
             className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
             title={t('settings.schedule')}
           >
             <Clock3 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleOpenMemory}
+            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
+            title="Memory"
+          >
+            <Database className="w-4 h-4" />
           </button>
         </div>
 
@@ -309,11 +374,42 @@ export function Sidebar() {
         </button>
 
         <button
+          onClick={handleOpenPermissions}
+          className="mt-2 w-full flex items-center justify-between gap-2 rounded-xl border border-border-subtle bg-surface/60 px-3 py-2 text-left text-text-primary hover:bg-surface-hover transition-colors"
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            <Shield className="w-4 h-4 text-text-secondary flex-shrink-0" />
+            <span className="text-[13px] font-medium">Approvals</span>
+          </span>
+          {pendingPermissions.length > 0 && (
+            <span className="min-w-[1.25rem] h-5 rounded-full bg-warning px-1.5 text-[11px] leading-5 text-white text-center">
+              {pendingPermissions.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={handleOpenTasks}
+          className="mt-2 w-full flex items-center gap-2 rounded-xl border border-border-subtle bg-surface/60 px-3 py-2 text-left text-text-primary hover:bg-surface-hover transition-colors"
+        >
+          <ListChecks className="w-4 h-4 text-text-secondary flex-shrink-0" />
+          <span className="text-[13px] font-medium">Tasks</span>
+        </button>
+
+        <button
           onClick={() => handleOpenSettings('schedule')}
           className="mt-2 w-full flex items-center gap-2 rounded-xl border border-border-subtle bg-surface/60 px-3 py-2 text-left text-text-primary hover:bg-surface-hover transition-colors"
         >
           <Clock3 className="w-4 h-4 text-text-secondary flex-shrink-0" />
           <span className="text-[13px] font-medium">{t('settings.schedule')}</span>
+        </button>
+
+        <button
+          onClick={handleOpenMemory}
+          className="mt-2 w-full flex items-center gap-2 rounded-xl border border-border-subtle bg-surface/60 px-3 py-2 text-left text-text-primary hover:bg-surface-hover transition-colors"
+        >
+          <Database className="w-4 h-4 text-text-secondary flex-shrink-0" />
+          <span className="text-[13px] font-medium">Memory</span>
         </button>
 
         {sessions.length > 0 && (

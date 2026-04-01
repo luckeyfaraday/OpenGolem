@@ -24,6 +24,7 @@ import type {
   PairingRequest,
 } from './types';
 import type { Message, ContentBlock, ServerEvent, Session } from '../../renderer/types/index';
+import type { MemoryEntry } from '../../renderer/types/index';
 
 // Agent executor interface - exported for use in main process
 export interface AgentExecutor {
@@ -35,7 +36,11 @@ export interface AgentExecutor {
     cwd?: string
   ): Promise<void>;
   stopSession(sessionId: string): Promise<void>;
+  renameSession?(sessionId: string, title: string): Promise<void> | void;
   getMessages?(sessionId: string): Promise<Message[]> | Message[];
+  addMemory?(sessionId: string, content: string, tags?: string[]): Promise<MemoryEntry> | MemoryEntry;
+  searchMemory?(query: string, limit?: number): Promise<MemoryEntry[]> | MemoryEntry[];
+  listMemory?(limit?: number): Promise<MemoryEntry[]> | MemoryEntry[];
   validateWorkingDirectory?(cwd: string): Promise<string | null> | string | null;
 }
 
@@ -155,11 +160,23 @@ export class RemoteManager extends EventEmitter {
       stopSession: async (sessionId) => {
         await executor.stopSession(sessionId);
       },
-      resetSession: async (remoteSessionId, actualSessionId) => {
-        this.forgetRemoteSessionMapping(remoteSessionId, actualSessionId);
-      },
       getSessionMessages: async (sessionId) => {
         return executor.getMessages ? await executor.getMessages(sessionId) : [];
+      },
+      renameSession: async (sessionId, title) => {
+        await executor.renameSession?.(sessionId, title);
+      },
+      addMemory: async (sessionId, content, tags) => {
+        if (!executor.addMemory) {
+          throw new Error('Memory storage is not available');
+        }
+        return executor.addMemory(sessionId, content, tags);
+      },
+      searchMemory: async (query, limit) => {
+        return executor.searchMemory ? await executor.searchMemory(query, limit) : [];
+      },
+      listMemory: async (limit) => {
+        return executor.listMemory ? await executor.listMemory(limit) : [];
       },
     });
     

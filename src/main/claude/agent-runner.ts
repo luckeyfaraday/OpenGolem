@@ -45,6 +45,13 @@ import type { SkillsAdapter } from '../skills/skills-adapter';
 import { configStore } from '../config/config-store';
 import { resolveMessageEndPayload, toUserFacingErrorText } from './agent-runner-message-end';
 import {
+  buildRetryFailedTitle,
+  buildRetryRecoveredTitle,
+  buildRetryTraceTitle,
+  DEFAULT_PI_RETRY_SETTINGS,
+  isTransientRetryableError,
+} from './agent-retry';
+import {
   applyPiModelRuntimeOverrides,
   buildSyntheticPiModel,
   resolvePiProtocol,
@@ -53,6 +60,7 @@ import {
 import { ThinkTagStreamParser } from './think-tag-parser';
 import { getPiProviderForConfig, resolveConfiguredApiKey } from '../oauth/oauth-provider-runtime';
 import { performWebFetch, performWebSearch } from '../tools/web-tools';
+import { estimateMessageCostUsd } from '../config/pricing';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -1603,7 +1611,7 @@ Tool routing:
           sessionManager: PiSessionManager.inMemory(),
           settingsManager: PiSettingsManager.inMemory({
             compaction: { enabled: true },
-            retry: { enabled: true, maxRetries: 2 },
+            retry: DEFAULT_PI_RETRY_SETTINGS,
           }),
           resourceLoader,
           cwd: effectiveCwd,
@@ -1620,6 +1628,8 @@ Tool routing:
       // Accumulate streamed text deltas in case message_end.content is empty (pi SDK streaming behaviour)
       let streamedText = '';
       let compactionStepId: string | undefined;
+      let retryStepId: string | undefined;
+      let pendingRetryErrorText: string | undefined;
       let hasEmittedError = false;
       const thinkParser = new ThinkTagStreamParser();
 
@@ -1758,6 +1768,13 @@ Tool routing:
             });
             streamedText = resolvedPayload.nextStreamedText;
             if (resolvedPayload.errorText) {
+              if (isTransientRetryableError((msg as any)?.errorMessage)) {
+                pendingRetryErrorText = resolvedPayload.errorText;
+                this.sendTraceUpdate(session.id, thinkingStepId, {
+                  title: 'Transient upstream failure detected, waiting for automatic retry...',
+                });
+                break;
+              }
               if (!hasEmittedError) {
                 hasEmittedError = true;
                 this.sendMessage(session.id, {
@@ -1836,6 +1853,13 @@ Tool routing:
                   content: contentBlocks,
                   timestamp: Date.now(),
                   tokenUsage,
+                  estimatedCostUsd: estimateMessageCostUsd({
+                    provider: runtimeConfig.provider,
+                    configuredModel: modelString,
+                    resolvedModelId: piModel.id,
+                    tokenUsage,
+                    pricingOverrides: runtimeConfig.pricingOverrides,
+                  }),
                 };
                 this.sendMessage(session.id, assistantMsg);
               }
@@ -1880,6 +1904,73 @@ Tool routing:
 
           case 'agent_end': {
             logCtx('[ClaudeAgentRunner] Agent finished');
+            break;
+          }
+
+          case 'auto_retry_start': {
+            pendingRetryErrorText = toUserFacingErrorText(event.errorMessage);
+            const title = buildRetryTraceTitle(
+              event.attempt,
+              event.maxAttempts,
+              event.delayMs,
+              event.errorMessage,
+            );
+            if (!retryStepId) {
+              retryStepId = `retry-${Date.now()}`;
+              this.sendTraceStep(session.id, {
+                id: retryStepId,
+                type: 'thinking',
+                status: 'running',
+                title,
+                timestamp: Date.now(),
+              });
+            } else {
+              this.sendTraceUpdate(session.id, retryStepId, {
+                status: 'running',
+                title,
+              });
+            }
+            this.sendTraceUpdate(session.id, thinkingStepId, {
+              title: 'Retrying after transient upstream failure...',
+            });
+            break;
+          }
+
+          case 'auto_retry_end': {
+            if (event.success) {
+              pendingRetryErrorText = undefined;
+              if (retryStepId) {
+                this.sendTraceUpdate(session.id, retryStepId, {
+                  status: 'completed',
+                  title: buildRetryRecoveredTitle(event.attempt),
+                });
+                retryStepId = undefined;
+              }
+              this.sendTraceUpdate(session.id, thinkingStepId, {
+                title: 'Processing request...',
+              });
+              break;
+            }
+
+            const finalErrorText = event.finalError ? toUserFacingErrorText(event.finalError) : pendingRetryErrorText;
+            if (retryStepId) {
+              this.sendTraceUpdate(session.id, retryStepId, {
+                status: 'error',
+                title: buildRetryFailedTitle(event.finalError),
+              });
+              retryStepId = undefined;
+            }
+            if (finalErrorText && !hasEmittedError) {
+              hasEmittedError = true;
+              this.sendMessage(session.id, {
+                id: uuidv4(),
+                sessionId: session.id,
+                role: 'assistant',
+                content: [{ type: 'text', text: `**Error**: ${finalErrorText}` }],
+                timestamp: Date.now(),
+              });
+            }
+            pendingRetryErrorText = undefined;
             break;
           }
 
@@ -1928,6 +2019,13 @@ Tool routing:
               title: 'Error during context compaction',
             });
             compactionStepId = undefined;
+          }
+          if (retryStepId) {
+            this.sendTraceUpdate(session.id, retryStepId, {
+              status: 'error',
+              title: 'Error during automatic retry handling',
+            });
+            retryStepId = undefined;
           }
           if (!hasEmittedError) {
             hasEmittedError = true;

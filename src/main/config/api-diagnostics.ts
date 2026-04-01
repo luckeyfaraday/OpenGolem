@@ -31,12 +31,21 @@ import type {
 import { log, logWarn } from '../utils/logger';
 import { probeWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import { withRetry } from '../utils/retry';
+import {
+  extractRetryAfterMs,
+  isRetryableApiTestFailure,
+  shouldRetryApiError,
+  toRetryableApiTestError,
+} from '../utils/api-retry';
 import { isOAuthProvider } from '../oauth/oauth-store';
 import { resolveConfiguredApiKey } from '../oauth/oauth-provider-runtime';
 
 const STEP_NAMES: DiagnosticStepName[] = ['dns', 'tcp', 'tls', 'auth', 'model'];
 const TCP_TIMEOUT_MS = 5000;
 const TLS_TIMEOUT_MS = 5000;
+const DIAGNOSTIC_RETRY_MAX_RETRIES = 3;
+const DIAGNOSTIC_RETRY_BASE_DELAY_MS = 1000;
+const DIAGNOSTIC_RETRY_MAX_DELAY_MS = 30000;
 const LOCAL_ANTHROPIC_PLACEHOLDER_KEY = 'sk-ant-local-proxy';
 
 export interface LocalOllamaDiscoveryResult {
@@ -338,74 +347,86 @@ async function stepAuth(input: DiagnosticInput, step: DiagnosticStep): Promise<v
   }
 
   const start = Date.now();
-  const apiKey = await resolveConfiguredApiKey({
-    provider: input.provider,
-    apiKey: input.apiKey || '',
-  });
-  const clientBaseUrl = resolveClientBaseUrl(input);
 
   try {
-    if (isOpenAICompatible(input)) {
-      const resolved =
-        input.provider === 'ollama'
-          ? resolveOllamaCredentials({
-              provider: input.provider,
-              customProtocol: input.customProtocol,
-              apiKey,
-              baseUrl: clientBaseUrl,
-            })
-          : resolveOpenAICredentials({
-              provider: input.provider,
-              customProtocol: input.customProtocol,
-              apiKey,
-              baseUrl: clientBaseUrl,
-            });
+    await withRetry(
+      async () => {
+        const apiKey = await resolveConfiguredApiKey({
+          provider: input.provider,
+          apiKey: input.apiKey || '',
+        });
+        const clientBaseUrl = resolveClientBaseUrl(input);
 
-      if (!resolved?.apiKey) {
-        step.status = 'fail';
-        step.error = 'No API key provided';
-        step.fix = 'missing_api_key';
-        step.latencyMs = Date.now() - start;
-        return;
+        if (isOpenAICompatible(input)) {
+          const resolved =
+            input.provider === 'ollama'
+              ? resolveOllamaCredentials({
+                  provider: input.provider,
+                  customProtocol: input.customProtocol,
+                  apiKey,
+                  baseUrl: clientBaseUrl,
+                })
+              : resolveOpenAICredentials({
+                  provider: input.provider,
+                  customProtocol: input.customProtocol,
+                  apiKey,
+                  baseUrl: clientBaseUrl,
+                });
+
+          if (!resolved?.apiKey) {
+            step.status = 'fail';
+            step.error = 'No API key provided';
+            step.fix = 'missing_api_key';
+            step.latencyMs = Date.now() - start;
+            return;
+          }
+
+          const client = new OpenAI({
+            apiKey: resolved.apiKey,
+            baseURL: resolved.baseUrl || clientBaseUrl,
+            timeout: 15000,
+          });
+          await client.models.list();
+          return;
+        }
+
+        const allowEmpty = shouldAllowEmptyAnthropicApiKey({
+          provider: input.provider,
+          customProtocol: input.customProtocol,
+          baseUrl: clientBaseUrl,
+        });
+        const effectiveKey = apiKey || (allowEmpty ? LOCAL_ANTHROPIC_PLACEHOLDER_KEY : '');
+
+        if (!effectiveKey) {
+          step.status = 'fail';
+          step.error = 'No API key provided';
+          step.fix = 'missing_api_key';
+          step.latencyMs = Date.now() - start;
+          return;
+        }
+
+        const useAuthToken = shouldUseAnthropicAuthToken({
+          provider: input.provider,
+          customProtocol: input.customProtocol,
+          apiKey: effectiveKey,
+        });
+
+        await withSuppressedAnthropicEnv(async () => {
+          const client = useAuthToken
+            ? new Anthropic({ authToken: effectiveKey, baseURL: clientBaseUrl, timeout: 15000 })
+            : new Anthropic({ apiKey: effectiveKey, baseURL: clientBaseUrl, timeout: 15000 });
+          await client.models.list();
+        });
+      },
+      {
+        maxRetries: DIAGNOSTIC_RETRY_MAX_RETRIES,
+        delayMs: DIAGNOSTIC_RETRY_BASE_DELAY_MS,
+        backoffMultiplier: 2,
+        maxDelayMs: DIAGNOSTIC_RETRY_MAX_DELAY_MS,
+        shouldRetry: shouldRetryApiError,
+        resolveDelayMs: (_attempt, error) => extractRetryAfterMs(error),
       }
-
-      const client = new OpenAI({
-        apiKey: resolved.apiKey,
-        baseURL: resolved.baseUrl || clientBaseUrl,
-        timeout: 15000,
-      });
-      await client.models.list();
-    } else {
-      // Anthropic-compatible
-      const allowEmpty = shouldAllowEmptyAnthropicApiKey({
-        provider: input.provider,
-        customProtocol: input.customProtocol,
-        baseUrl: clientBaseUrl,
-      });
-      const effectiveKey = apiKey || (allowEmpty ? LOCAL_ANTHROPIC_PLACEHOLDER_KEY : '');
-
-      if (!effectiveKey) {
-        step.status = 'fail';
-        step.error = 'No API key provided';
-        step.fix = 'missing_api_key';
-        step.latencyMs = Date.now() - start;
-        return;
-      }
-
-      const useAuthToken = shouldUseAnthropicAuthToken({
-        provider: input.provider,
-        customProtocol: input.customProtocol,
-        apiKey: effectiveKey,
-      });
-
-      // Temporarily clear env vars to prevent SDK from reading them
-      await withSuppressedAnthropicEnv(async () => {
-        const client = useAuthToken
-          ? new Anthropic({ authToken: effectiveKey, baseURL: clientBaseUrl, timeout: 15000 })
-          : new Anthropic({ apiKey: effectiveKey, baseURL: clientBaseUrl, timeout: 15000 });
-        await client.models.list();
-      });
-    }
+    );
 
     step.status = 'ok';
   } catch (err) {
@@ -434,13 +455,29 @@ async function stepModel(input: DiagnosticInput, step: DiagnosticStep): Promise<
   const start = Date.now();
   try {
     const config = configStore.getAll();
-    const result = await probeWithClaudeSdk({
-      provider: input.provider,
-      apiKey: input.apiKey,
-      baseUrl: input.baseUrl,
-      customProtocol: input.customProtocol,
-      model: input.model,
-    }, config);
+    const result = await withRetry(
+      async () => {
+        const probeResult = await probeWithClaudeSdk({
+          provider: input.provider,
+          apiKey: input.apiKey,
+          baseUrl: input.baseUrl,
+          customProtocol: input.customProtocol,
+          model: input.model,
+        }, config);
+        if (!probeResult.ok && isRetryableApiTestFailure(probeResult)) {
+          throw toRetryableApiTestError(probeResult);
+        }
+        return probeResult;
+      },
+      {
+        maxRetries: DIAGNOSTIC_RETRY_MAX_RETRIES,
+        delayMs: DIAGNOSTIC_RETRY_BASE_DELAY_MS,
+        backoffMultiplier: 2,
+        maxDelayMs: DIAGNOSTIC_RETRY_MAX_DELAY_MS,
+        shouldRetry: shouldRetryApiError,
+        resolveDelayMs: (_attempt, error) => extractRetryAfterMs(error),
+      }
+    );
 
     if (result.ok) {
       step.status = 'ok';

@@ -33,6 +33,7 @@ import {
 } from './session-title-utils';
 import { generateTitleWithClaudeSdk } from '../claude/claude-sdk-one-shot';
 import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
+import { permissionRulesStore } from '../permissions/permission-rules-store';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -54,6 +55,10 @@ export class SessionManager {
   private activeSessions: Map<string, AbortController> = new Map();
   private promptQueues: Map<string, Array<{ prompt: string; content?: ContentBlock[] }>> = new Map();
   private pendingPermissions: Map<string, (result: PermissionResult) => void> = new Map();
+  private pendingPermissionRequests: Map<
+    string,
+    { toolName: string; input: Record<string, unknown> }
+  > = new Map();
   private pendingSudoPasswords: Map<string, { sessionId: string; resolve: (password: string | null) => void }> = new Map();
   private sandboxInitPromises: Map<string, Promise<void>> = new Map();
   private sessionTitleAttempts: Set<string> = new Set();
@@ -846,6 +851,21 @@ export class SessionManager {
     });
   }
 
+  renameSession(sessionId: string, title: string): void {
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) {
+      throw new Error('Session title cannot be empty');
+    }
+    if (!this.db.sessions.get(sessionId)) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    // Stop in-flight auto-title generation and mark the session as user-titled.
+    this.titleGenerationTokens.delete(sessionId);
+    this.sessionTitleAttempts.add(sessionId);
+    this.updateSessionTitle(sessionId, normalizedTitle);
+  }
+
   // Update session's working directory
   // Also clears SDK session cache because Claude SDK sessions are bound to cwd
   updateSessionCwd(sessionId: string, cwd: string): void {
@@ -887,6 +907,7 @@ export class SessionManager {
       timestamp: message.timestamp,
       token_usage: message.tokenUsage ? JSON.stringify(message.tokenUsage) : null,
       execution_time_ms: message.executionTimeMs ?? null,
+      estimated_cost_usd: message.estimatedCostUsd ?? null,
     });
     const cached = this.messageCache.get(message.sessionId);
     if (cached) {
@@ -916,6 +937,7 @@ export class SessionManager {
       content: this.normalizeContent(row.content),
       timestamp: row.timestamp,
       tokenUsage: row.token_usage ? JSON.parse(row.token_usage) : undefined,
+      estimatedCostUsd: row.estimated_cost_usd ?? undefined,
       executionTimeMs: row.execution_time_ms ?? undefined,
     }));
     this.messageCache.set(sessionId, messages);
@@ -969,8 +991,14 @@ export class SessionManager {
   handlePermissionResponse(toolUseId: string, result: PermissionResult): void {
     const resolver = this.pendingPermissions.get(toolUseId);
     if (resolver) {
-      resolver(result);
+      const pendingRequest = this.pendingPermissionRequests.get(toolUseId);
+      if (result === 'allow_always' && pendingRequest) {
+        permissionRulesStore.addRememberedRule(pendingRequest.toolName, pendingRequest.input);
+      }
+      resolver(result === 'allow_always' ? 'allow' : result);
       this.pendingPermissions.delete(toolUseId);
+      this.pendingPermissionRequests.delete(toolUseId);
+      this.sendToRenderer({ type: 'permission.dismiss', payload: { toolUseId } });
     }
   }
 
@@ -981,12 +1009,19 @@ export class SessionManager {
     toolName: string,
     input: Record<string, unknown>
   ): Promise<PermissionResult> {
+    const matchedRule = permissionRulesStore.match(toolName, input);
+    if (matchedRule) {
+      return matchedRule.action === 'deny' ? 'deny' : 'allow';
+    }
+
     return new Promise((resolve) => {
       const timeoutId = setTimeout(() => {
         this.pendingPermissions.delete(toolUseId);
+        this.pendingPermissionRequests.delete(toolUseId);
         resolve('deny');
         this.sendToRenderer({ type: 'permission.dismiss', payload: { toolUseId } });
       }, 60_000);
+      this.pendingPermissionRequests.set(toolUseId, { toolName, input });
       this.pendingPermissions.set(toolUseId, (result: PermissionResult) => {
         clearTimeout(timeoutId);
         resolve(result);

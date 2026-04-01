@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useIPC } from '../hooks/useIPC';
 import type { PermissionRequest } from '../types';
+import { useAppStore } from '../store';
 import {
   Shield,
   X,
@@ -15,6 +16,8 @@ interface PermissionDialogProps {
 export function PermissionDialog({ permission }: PermissionDialogProps) {
   const { t } = useTranslation();
   const { respondToPermission } = useIPC();
+  const pendingPermissions = useAppStore((s) => s.pendingPermissions);
+  const setShowPermissionsPanel = useAppStore((s) => s.setShowPermissionsPanel);
 
   const getToolDescription = (toolName: string): string => {
     const key = `permission.toolDescriptions.${toolName}`;
@@ -107,6 +110,12 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
           </button>
         </div>
 
+        {pendingPermissions.length > 1 && (
+          <div className="mt-3 text-xs text-text-muted">
+            {pendingPermissions.length} approvals are waiting.
+          </div>
+        )}
+
         {/* Always Allow option */}
         <button
           onClick={() => {
@@ -125,6 +134,13 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
           className="w-full mt-2 btn btn-ghost text-sm"
         >
           {t('permission.alwaysAllow')}
+        </button>
+
+        <button
+          onClick={() => setShowPermissionsPanel(true)}
+          className="w-full mt-2 btn btn-ghost text-sm"
+        >
+          Review All Approvals
         </button>
       </div>
     </div>
