@@ -71,6 +71,17 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
     expect(agentRunnerContent).toContain("log('[ClaudeAgentRunner] Queued prompt on active pi session:'");
   });
 
+  it('uses turn_end as a fallback source for the final visible assistant response', () => {
+    expect(agentRunnerContent).toContain("case 'turn_end': {");
+    expect(agentRunnerContent).toContain('if (controller.signal.aborted || hasEmittedError || hasVisibleAssistantText) break;');
+    expect(agentRunnerContent).toContain('const resolvedPayload = resolveMessageEndPayload({');
+  });
+
+  it('synthesizes a completion summary when the turn ends without visible assistant text', () => {
+    expect(agentRunnerContent).toContain('buildToolCompletionSummary(completedToolRecords)');
+    expect(agentRunnerContent).toContain('if (!hasEmittedError && !hasVisibleAssistantText) {');
+  });
+
   it('nudges the model to proceed with reasonable assumptions', () => {
     expect(agentRunnerContent).toContain('proceed immediately with reasonable assumptions');
     expect(agentRunnerContent).toContain('within two days');

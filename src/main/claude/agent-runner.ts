@@ -62,6 +62,7 @@ import { ThinkTagStreamParser } from './think-tag-parser';
 import { getPiProviderForConfig, resolveConfiguredApiKey } from '../oauth/oauth-provider-runtime';
 import { performWebFetch, performWebSearch } from '../tools/web-tools';
 import { estimateMessageCostUsd } from '../config/pricing';
+import { buildToolCompletionSummary } from './agent-runner-completion';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -1667,7 +1668,110 @@ Tool routing:
       let retryStepId: string | undefined;
       let pendingRetryErrorText: string | undefined;
       let hasEmittedError = false;
+      let hasVisibleAssistantText = false;
+      const toolInputsByCallId = new Map<string, Record<string, unknown> | undefined>();
+      const completedToolRecords: Array<{
+        toolName: string;
+        toolInput?: Record<string, unknown>;
+        toolOutput?: string;
+        isError?: boolean;
+      }> = [];
       const thinkParser = new ThinkTagStreamParser();
+
+      const buildAssistantContentBlocks = (
+        effectiveContent: Array<any>,
+        options: { emitArtifactSteps?: boolean } = {}
+      ): {
+        contentBlocks: ContentBlock[];
+        hasVisibleText: boolean;
+      } => {
+        const contentBlocks: ContentBlock[] = [];
+        let hasVisibleText = false;
+        const emitArtifactSteps = options.emitArtifactSteps ?? false;
+
+        for (const block of effectiveContent) {
+          if (block.type === 'text') {
+            const { cleanText, artifacts } = extractArtifactsFromText(block.text);
+            if (cleanText) {
+              const sanitizedText = sanitizeOutputPaths(cleanText);
+              contentBlocks.push({ type: 'text', text: sanitizedText });
+              if (sanitizedText.trim()) {
+                hasVisibleText = true;
+              }
+            }
+            if (emitArtifactSteps && artifacts.length > 0) {
+              for (const step of buildArtifactTraceSteps(artifacts)) {
+                this.sendTraceStep(session.id, step);
+              }
+            }
+          } else if (block.type === 'toolCall') {
+            contentBlocks.push({
+              type: 'tool_use',
+              id: block.id,
+              name: block.name,
+              input: block.arguments,
+            });
+          } else if (block.type === 'thinking') {
+            contentBlocks.push({
+              type: 'thinking',
+              thinking: block.thinking,
+            });
+          } else {
+            log(`[ClaudeAgentRunner] Unknown content block type: ${(block as any).type}`);
+            const text = (block as any).text || JSON.stringify(block);
+            if (text) contentBlocks.push({ type: 'text', text });
+          }
+        }
+
+        return { contentBlocks, hasVisibleText };
+      };
+
+      const emitAssistantMessageFromPayload = (messageLike: any, effectiveContent: Array<any>): boolean => {
+        const { contentBlocks, hasVisibleText } = buildAssistantContentBlocks(effectiveContent, {
+          emitArtifactSteps: true,
+        });
+        this.sendToRenderer({
+          type: 'stream.partial',
+          payload: { sessionId: session.id, delta: '' },
+        });
+        if (contentBlocks.length === 0) {
+          return false;
+        }
+
+        const tokenUsage = normalizeTokenUsage(messageLike?.usage);
+        if (messageLike?.usage) {
+          log(
+            '[ClaudeAgentRunner] normalized usage:',
+            safeStringify(
+              {
+                raw: messageLike.usage,
+                normalized: tokenUsage,
+              },
+              2
+            )
+          );
+        }
+        const assistantMsg: Message = {
+          id: uuidv4(),
+          sessionId: session.id,
+          role: 'assistant',
+          content: contentBlocks,
+          timestamp: Date.now(),
+          tokenUsage,
+          estimatedCostUsd: estimateMessageCostUsd({
+            provider: runtimeConfig.provider,
+            configuredModel: modelString,
+            resolvedModelId: piModel.id,
+            tokenUsage,
+            pricingOverrides: runtimeConfig.pricingOverrides,
+          }),
+        };
+        this.sendMessage(session.id, assistantMsg);
+        if (hasVisibleText) {
+          hasVisibleAssistantText = true;
+        }
+        return true;
+      };
 
       // Ollama cold-start feedback: if provider is 'ollama' and no stream event arrives
       // within 10 seconds, show a "model loading" trace update so users know what's happening.
@@ -1755,13 +1859,17 @@ Tool routing:
               const toolContent = partial?.content?.[ame.contentIndex];
               const toolName = toolContent?.type === 'toolCall' ? toolContent.name : 'unknown';
               const toolCallId = toolContent?.type === 'toolCall' ? toolContent.id : uuidv4();
+              const toolInput = toolContent?.type === 'toolCall'
+                ? (toolContent.arguments as Record<string, unknown> || {})
+                : undefined;
+              toolInputsByCallId.set(toolCallId, toolInput);
               this.sendTraceStep(session.id, {
                 id: toolCallId,
                 type: 'tool_call',
                 status: 'running',
                 title: toolName,
                 toolName,
-                toolInput: toolContent?.type === 'toolCall' ? (toolContent.arguments as Record<string, unknown> || {}) : undefined,
+                toolInput,
                 timestamp: Date.now(),
               });
             } else if (ame.type === 'done') {
@@ -1831,80 +1939,44 @@ Tool routing:
               break;
             }
             if (resolvedPayload.shouldEmitMessage) {
-              const contentBlocks: ContentBlock[] = [];
-              for (const block of resolvedPayload.effectiveContent) {
-                if (block.type === 'text') {
-                  const { cleanText, artifacts } = extractArtifactsFromText(block.text);
-                  if (cleanText) {
-                    contentBlocks.push({ type: 'text', text: sanitizeOutputPaths(cleanText) });
-                  }
-                  if (artifacts.length > 0) {
-                    for (const step of buildArtifactTraceSteps(artifacts)) {
-                      this.sendTraceStep(session.id, step);
-                    }
-                  }
-                } else if (block.type === 'toolCall') {
-                  contentBlocks.push({
-                    type: 'tool_use',
-                    id: block.id,
-                    name: block.name,
-                    input: block.arguments,
-                  });
-                } else if (block.type === 'thinking') {
-                  // Include thinking blocks in the final message for UI display
-                  contentBlocks.push({
-                    type: 'thinking',
-                    thinking: block.thinking,
-                  });
-                } else {
-                  // Unknown block type — pass through as text so content isn't silently lost
-                  log(`[ClaudeAgentRunner] Unknown content block type: ${(block as any).type}`);
-                  const text = (block as any).text || JSON.stringify(block);
-                  if (text) contentBlocks.push({ type: 'text', text });
-                }
-              }
-              // Always clear partial text; send message even if only artifacts were extracted
+              emitAssistantMessageFromPayload(msg, resolvedPayload.effectiveContent);
+            }
+            break;
+          }
+
+          case 'turn_end': {
+            if (controller.signal.aborted || hasEmittedError || hasVisibleAssistantText) break;
+
+            const flushed = thinkParser.flush();
+            if (flushed.thinking) {
               this.sendToRenderer({
-                type: 'stream.partial',
-                payload: { sessionId: session.id, delta: '' },
+                type: 'stream.thinking',
+                payload: { sessionId: session.id, delta: flushed.thinking },
               });
-              if (contentBlocks.length > 0) {
-                const tokenUsage = normalizeTokenUsage((msg as any).usage);
-                if ((msg as any).usage) {
-                  log(
-                    '[ClaudeAgentRunner] normalized usage:',
-                    safeStringify(
-                      {
-                        raw: (msg as any).usage,
-                        normalized: tokenUsage,
-                      },
-                      2
-                    )
-                  );
-                }
-                const assistantMsg: Message = {
-                  id: uuidv4(),
-                  sessionId: session.id,
-                  role: 'assistant',
-                  content: contentBlocks,
-                  timestamp: Date.now(),
-                  tokenUsage,
-                  estimatedCostUsd: estimateMessageCostUsd({
-                    provider: runtimeConfig.provider,
-                    configuredModel: modelString,
-                    resolvedModelId: piModel.id,
-                    tokenUsage,
-                    pricingOverrides: runtimeConfig.pricingOverrides,
-                  }),
-                };
-                this.sendMessage(session.id, assistantMsg);
-              }
+            }
+            if (flushed.text) {
+              streamedText += flushed.text;
+            }
+
+            const resolvedPayload = resolveMessageEndPayload({
+              message: event.message as any,
+              streamedText,
+            });
+            streamedText = resolvedPayload.nextStreamedText;
+            if (resolvedPayload.errorText || !resolvedPayload.shouldEmitMessage) {
+              break;
+            }
+
+            const { hasVisibleText } = buildAssistantContentBlocks(resolvedPayload.effectiveContent);
+            if (hasVisibleText) {
+              emitAssistantMessageFromPayload(event.message as any, resolvedPayload.effectiveContent);
             }
             break;
           }
 
           case 'tool_execution_start': {
             logCtx(`[ClaudeAgentRunner] Tool execution start: ${event.toolName}`);
+            toolInputsByCallId.set(event.toolCallId, event.args as Record<string, unknown> | undefined);
             break;
           }
 
@@ -1915,6 +1987,13 @@ Tool routing:
             const outputText = typeof event.result === 'string'
               ? event.result
               : JSON.stringify(event.result || '');
+            completedToolRecords.push({
+              toolName: event.toolName,
+              toolInput: toolInputsByCallId.get(toolCallId),
+              toolOutput: outputText,
+              isError,
+            });
+            toolInputsByCallId.delete(toolCallId);
             this.sendTraceUpdate(session.id, toolCallId, {
               status: isError ? 'error' : 'completed',
               toolName: event.toolName,
@@ -2096,6 +2175,17 @@ Tool routing:
       }
 
       logTiming('pi-coding-agent prompt completed', runStartTime);
+
+      if (!hasEmittedError && !hasVisibleAssistantText) {
+        this.sendMessage(session.id, {
+          id: uuidv4(),
+          sessionId: session.id,
+          role: 'assistant',
+          content: [{ type: 'text', text: buildToolCompletionSummary(completedToolRecords) }],
+          timestamp: Date.now(),
+        });
+        hasVisibleAssistantText = true;
+      }
 
       // Complete - update the initial thinking step
       this.sendTraceUpdate(session.id, thinkingStepId, {
