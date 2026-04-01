@@ -14,4 +14,12 @@ describe('useIPC session start error handling', () => {
     );
     expect(source).not.toContain('throw e;');
   });
+
+  it('threads explicit streaming behavior through queued session.continue payloads', () => {
+    const source = fs.readFileSync(useIPCPath, 'utf8');
+
+    expect(source).toContain('streamingBehavior?: StreamingBehavior');
+    expect(source).toContain("const effectiveStreamingBehavior = shouldQueue");
+    expect(source).toContain("streamingBehavior: effectiveStreamingBehavior");
+  });
 });

@@ -9,6 +9,7 @@ import type {
   MemoryEntry,
   TraceStep,
   ContentBlock,
+  StreamingBehavior,
 } from '../types';
 import i18n from '../i18n/config';
 
@@ -470,7 +471,11 @@ export function useIPC() {
 
   // Continue an existing session
   const continueSession = useCallback(
-    async (sessionId: string, promptOrContent: string | ContentBlock[]) => {
+    async (
+      sessionId: string,
+      promptOrContent: string | ContentBlock[],
+      streamingBehavior?: StreamingBehavior
+    ) => {
       setLoading(true);
       console.log('[useIPC] Continuing session:', sessionId);
 
@@ -491,6 +496,9 @@ export function useIPC() {
       const hasActiveTurn = Boolean(store.activeTurnsBySession[sessionId]);
       const hasPending = (store.pendingTurnsBySession[sessionId]?.length ?? 0) > 0;
       const shouldQueue = isSessionRunning || hasActiveTurn || hasPending;
+      const effectiveStreamingBehavior = shouldQueue
+        ? (streamingBehavior ?? 'followUp')
+        : streamingBehavior;
       const userMessage: Message = {
         id: `msg-user-${Date.now()}`,
         sessionId,
@@ -539,6 +547,7 @@ export function useIPC() {
           sessionId,
           prompt,
           content, // Send full content blocks including images
+          streamingBehavior: effectiveStreamingBehavior,
         },
       });
       // Loading will be reset when we receive session.status event

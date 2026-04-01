@@ -64,6 +64,13 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
     expect(agentRunnerContent).toContain("log('[ClaudeAgentRunner] waitForIdle() completed');");
   });
 
+  it('can queue follow-up prompts onto an actively streaming cached pi session', () => {
+    expect(agentRunnerContent).toContain('async queueStreamingPrompt(');
+    expect(agentRunnerContent).toContain('if (!piSession.isStreaming) {');
+    expect(agentRunnerContent).toContain('streamingBehavior,');
+    expect(agentRunnerContent).toContain("log('[ClaudeAgentRunner] Queued prompt on active pi session:'");
+  });
+
   it('nudges the model to proceed with reasonable assumptions', () => {
     expect(agentRunnerContent).toContain('proceed immediately with reasonable assumptions');
     expect(agentRunnerContent).toContain('within two days');

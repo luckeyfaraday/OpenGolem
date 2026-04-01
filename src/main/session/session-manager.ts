@@ -14,7 +14,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Session, Message, ServerEvent, PermissionResult, ContentBlock, TextContent, TraceStep, FileAttachmentContent } from '../../renderer/types';
+import type { Session, Message, ServerEvent, PermissionResult, ContentBlock, TextContent, TraceStep, FileAttachmentContent, StreamingBehavior } from '../../renderer/types';
 import type { DatabaseInstance, TraceStepRow } from '../db/database';
 import { PathResolver } from '../sandbox/path-resolver';
 import { SandboxAdapter, getSandboxAdapter, initializeSandbox, reinitializeSandbox } from '../sandbox/sandbox-adapter';
@@ -37,9 +37,29 @@ import { permissionRulesStore } from '../permissions/permission-rules-store';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
+  queueStreamingPrompt?(
+    session: Session,
+    prompt: string,
+    content: ContentBlock[] | undefined,
+    streamingBehavior: StreamingBehavior
+  ): Promise<boolean>;
   cancel(sessionId: string): void;
   clearSdkSession?(sessionId: string): void;
 }
+
+type PreparedPrompt = {
+  originalPrompt: string;
+  prompt: string;
+  content: ContentBlock[];
+  existingMessages: Message[];
+  messagesForContext: Message[];
+};
+
+type PromptQueueItem = {
+  prompt: string;
+  content?: ContentBlock[];
+  prepared?: PreparedPrompt;
+};
 
 const WORKSPACE_MOUNT_VIRTUAL_PATH = '/mnt/workspace';
 const TITLE_GENERATION_TIMEOUT_MS = 20000;
@@ -53,7 +73,7 @@ export class SessionManager {
   private mcpManager: MCPManager;
   private pluginRuntimeService?: PluginRuntimeService;
   private activeSessions: Map<string, AbortController> = new Map();
-  private promptQueues: Map<string, Array<{ prompt: string; content?: ContentBlock[] }>> = new Map();
+  private promptQueues: Map<string, PromptQueueItem[]> = new Map();
   private pendingPermissions: Map<string, (result: PermissionResult) => void> = new Map();
   private pendingPermissionRequests: Map<
     string,
@@ -361,12 +381,35 @@ export class SessionManager {
   }
 
   // Continue an existing session
-  async continueSession(sessionId: string, prompt: string, content?: ContentBlock[]): Promise<void> {
+  async continueSession(
+    sessionId: string,
+    prompt: string,
+    content?: ContentBlock[],
+    streamingBehavior?: StreamingBehavior
+  ): Promise<void> {
     log('[SessionManager] Continuing session:', sessionId);
 
     const session = this.loadSession(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    if (streamingBehavior && this.activeSessions.has(session.id)) {
+      const prepared = await this.preparePromptSubmission(session, prompt, content);
+      const queued = await this.agentRunner.queueStreamingPrompt?.(
+        session,
+        prepared.prompt,
+        prepared.content,
+        streamingBehavior
+      );
+      if (queued) {
+        this.runSessionTitleGeneration(session, prompt, prepared.existingMessages)
+          .catch(err => logCtxError('[SessionManager] Title generation failed:', err));
+        return;
+      }
+
+      this.enqueuePreparedPrompt(session, prepared);
+      return;
     }
 
     this.enqueuePrompt(session, prompt, content);
@@ -538,66 +581,19 @@ export class SessionManager {
   }
 
   // Process a prompt using ClaudeAgentRunner
-  private async processPrompt(session: Session, prompt: string, content?: ContentBlock[]): Promise<void> {
+  private async processPrompt(session: Session, item: PromptQueueItem): Promise<void> {
     const traceId = generateTraceId();
     return runWithLogContext({ sessionId: session.id, traceId }, async () => {
     logCtx('[SessionManager] Processing prompt for session:', session.id, 'traceId:', traceId);
-    logCtx('[SessionManager] Received content:', content ? JSON.stringify(content.map((c: any) => ({ type: c.type, hasData: !!c.source?.data }))) : 'none');
-
-    // Ensure sandbox is initialized for this workspace
-    await this.ensureSandboxInitialized(session);
+    const prepared = item.prepared ?? await this.preparePromptSubmission(session, item.prompt, item.content);
+    logCtx('[SessionManager] Received content:', JSON.stringify(prepared.content.map((c: any) => ({ type: c.type, hasData: !!c.source?.data }))));
 
     try {
-      // Use provided content blocks or fall back to simple text
-      let messageContent: ContentBlock[] = content && content.length > 0
-        ? content
-        : [{ type: 'text', text: prompt } as TextContent];
-
-      // Process file attachments - copy to .tmp directory
-      messageContent = await this.processFileAttachments(session, messageContent);
-
-      logCtx('[SessionManager] Final message content types:', messageContent.map((c: any) => c.type));
-
-      // Build enhanced prompt with file information
-      let enhancedPrompt = prompt;
-      const fileAttachments = messageContent.filter(c => c.type === 'file_attachment') as FileAttachmentContent[];
-      if (fileAttachments.length > 0) {
-        const fileInfo = fileAttachments.map(f =>
-          `- ${f.filename} (${(f.size / 1024).toFixed(1)} KB) at path: ${f.relativePath}`
-        ).join('\n');
-        enhancedPrompt = `${prompt}\n\n[Attached files - use Read tool to access them]:\n${fileInfo}`;
-        logCtx('[SessionManager] Enhanced prompt with file info:', enhancedPrompt);
-      }
-
-      // Save user message to database for persistence
-      const existingMessages = this.getMessages(session.id);
-      const userMessage: Message = {
-        id: uuidv4(),
-        sessionId: session.id,
-        role: 'user',
-        content: messageContent, // Save full content including images and files
-        timestamp: Date.now(),
-      };
-      this.saveMessage(userMessage);
-      logCtx('[SessionManager] User message saved:', userMessage.id, 'with', messageContent.length, 'content blocks');
-      const messagesForContext = [...existingMessages, userMessage];
-
-      // Update session model to match current config (may have changed since session creation)
-      const currentModel = configStore.get('model');
-      if (currentModel && currentModel !== session.model) {
-        session.model = currentModel;
-        this.db.sessions.update(session.id, { model: currentModel });
-        this.sendToRenderer({
-          type: 'session.update',
-          payload: { sessionId: session.id, updates: { model: currentModel } },
-        });
-      }
-
       // Run the agent
-      await this.agentRunner.run(session, enhancedPrompt, messagesForContext);
+      await this.agentRunner.run(session, prepared.prompt, prepared.messagesForContext);
 
       // 标题生成不再与首轮对话并发，避免与主请求竞争同一上游配额/通道导致体感变慢。
-      this.runSessionTitleGeneration(session, prompt, existingMessages)
+      this.runSessionTitleGeneration(session, prepared.originalPrompt, prepared.existingMessages)
         .catch(err => logCtxError('[SessionManager] Title generation failed:', err));
     } catch (error) {
       logCtxError('[SessionManager] Error processing prompt:', error);
@@ -700,6 +696,73 @@ export class SessionManager {
     });
   }
 
+  private async preparePromptSubmission(
+    session: Session,
+    prompt: string,
+    content?: ContentBlock[]
+  ): Promise<PreparedPrompt> {
+    await this.ensureSandboxInitialized(session);
+
+    let messageContent: ContentBlock[] = content && content.length > 0
+      ? content
+      : [{ type: 'text', text: prompt } as TextContent];
+
+    messageContent = await this.processFileAttachments(session, messageContent);
+
+    logCtx('[SessionManager] Final message content types:', messageContent.map((c: any) => c.type));
+
+    let enhancedPrompt = prompt;
+    const fileAttachments = messageContent.filter(c => c.type === 'file_attachment') as FileAttachmentContent[];
+    if (fileAttachments.length > 0) {
+      const fileInfo = fileAttachments.map(f =>
+        `- ${f.filename} (${(f.size / 1024).toFixed(1)} KB) at path: ${f.relativePath}`
+      ).join('\n');
+      enhancedPrompt = `${prompt}\n\n[Attached files - use Read tool to access them]:\n${fileInfo}`;
+      logCtx('[SessionManager] Enhanced prompt with file info:', enhancedPrompt);
+    }
+
+    const existingMessages = this.getMessages(session.id);
+    const userMessage: Message = {
+      id: uuidv4(),
+      sessionId: session.id,
+      role: 'user',
+      content: messageContent,
+      timestamp: Date.now(),
+    };
+    this.saveMessage(userMessage);
+    logCtx('[SessionManager] User message saved:', userMessage.id, 'with', messageContent.length, 'content blocks');
+    const messagesForContext = [...existingMessages, userMessage];
+
+    const currentModel = configStore.get('model');
+    if (currentModel && currentModel !== session.model) {
+      session.model = currentModel;
+      this.db.sessions.update(session.id, { model: currentModel });
+      this.sendToRenderer({
+        type: 'session.update',
+        payload: { sessionId: session.id, updates: { model: currentModel } },
+      });
+    }
+
+    return {
+      originalPrompt: prompt,
+      prompt: enhancedPrompt,
+      content: messageContent,
+      existingMessages,
+      messagesForContext,
+    };
+  }
+
+  private enqueuePreparedPrompt(session: Session, prepared: PreparedPrompt): void {
+    const queue = this.promptQueues.get(session.id) || [];
+    queue.push({
+      prompt: prepared.originalPrompt,
+      content: prepared.content,
+      prepared,
+    });
+    this.promptQueues.set(session.id, queue);
+    log('[SessionManager] Cached pi session was not streaming; kept prompt in app queue:', session.id);
+  }
+
   private async generateTitleWithConfig(titlePrompt: string, cwd?: string): Promise<string | null> {
     // Always use pi-ai SDK for title generation
     return normalizeGeneratedTitle(await generateTitleWithClaudeSdk(titlePrompt, configStore.getAll(), cwd));
@@ -744,7 +807,7 @@ export class SessionManager {
           break;
         }
 
-        await this.processPrompt(latestSession, item.prompt, item.content);
+        await this.processPrompt(latestSession, item);
 
         if (controller.signal.aborted) break;
       }

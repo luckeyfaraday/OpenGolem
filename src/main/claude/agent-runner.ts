@@ -20,9 +20,10 @@ import {
   type AgentSession as PiAgentSession,
   type ToolDefinition,
 } from '@mariozechner/pi-coding-agent';
+import type { ImageContent as PiImageContent } from '@mariozechner/pi-ai';
 import { Type, type TSchema } from '@sinclair/typebox';
 import { getSharedAuthStorage, ModelRegistry } from './shared-auth';
-import type { Session, Message, TraceStep, ServerEvent, ContentBlock } from '../../renderer/types';
+import type { Session, Message, TraceStep, ServerEvent, ContentBlock, StreamingBehavior } from '../../renderer/types';
 import { v4 as uuidv4 } from 'uuid';
 import { PathResolver } from '../sandbox/path-resolver';
 import { MCPManager } from '../mcp/mcp-manager';
@@ -411,6 +412,17 @@ export class ClaudeAgentRunner {
   private _mcpServersCache: { fingerprint: string; servers: Record<string, unknown> } | null = null;
   private _skillsSetupDone = false;
 
+  private toPiImages(content?: ContentBlock[]): PiImageContent[] | undefined {
+    const images = content
+      ?.filter((block): block is Extract<ContentBlock, { type: 'image' }> => block.type === 'image')
+      .map((block) => ({
+        type: 'image' as const,
+        data: block.source.data,
+        mimeType: block.source.media_type,
+      }));
+    return images && images.length > 0 ? images : undefined;
+  }
+
   /**
    * Clear SDK session cache for a session
    * Called when session's cwd changes - SDK sessions are bound to cwd
@@ -422,6 +434,30 @@ export class ClaudeAgentRunner {
       this.piSessions.delete(sessionId);
       log('[ClaudeAgentRunner] Disposed pi session for:', sessionId);
     }
+  }
+
+  async queueStreamingPrompt(
+    session: Session,
+    prompt: string,
+    content: ContentBlock[] | undefined,
+    streamingBehavior: StreamingBehavior
+  ): Promise<boolean> {
+    const cachedSession = this.piSessions.get(session.id);
+    if (!cachedSession) {
+      return false;
+    }
+
+    const piSession = cachedSession.session;
+    if (!piSession.isStreaming) {
+      return false;
+    }
+
+    await piSession.prompt(prompt, {
+      streamingBehavior,
+      images: this.toPiImages(content),
+    });
+    log('[ClaudeAgentRunner] Queued prompt on active pi session:', streamingBehavior);
+    return true;
   }
 
   /** Call after the user installs / removes a skill so the next query re-links everything. */

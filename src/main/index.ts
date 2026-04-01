@@ -922,7 +922,7 @@ app
         }
         return sessionManager.startSession(title, prompt, cwd);
       },
-      continueSession: async (sessionId, prompt, content, cwd) => {
+      continueSession: async (sessionId, prompt, content, cwd, streamingBehavior) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
         if (cwd) {
           const result = await setWorkingDir(cwd, sessionId);
@@ -930,7 +930,7 @@ app
             throw new Error(result.error || 'Failed to update working directory');
           }
         }
-        await sessionManager.continueSession(sessionId, prompt, content);
+        await sessionManager.continueSession(sessionId, prompt, content, streamingBehavior);
       },
       stopSession: async (sessionId) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
@@ -2773,7 +2773,8 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       return sm.continueSession(
         event.payload.sessionId,
         event.payload.prompt,
-        event.payload.content
+        event.payload.content,
+        event.payload.streamingBehavior
       );
 
     case 'session.stop':

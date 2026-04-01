@@ -340,10 +340,12 @@ export interface PermissionRule {
   action: 'allow' | 'deny' | 'ask';
 }
 
+export type StreamingBehavior = 'steer' | 'followUp';
+
 // IPC Event types
 export type ClientEvent =
   | { type: 'session.start'; payload: { title: string; prompt: string; cwd?: string; allowedTools?: string[]; content?: ContentBlock[] } }
-  | { type: 'session.continue'; payload: { sessionId: string; prompt: string; content?: ContentBlock[] } }
+  | { type: 'session.continue'; payload: { sessionId: string; prompt: string; content?: ContentBlock[]; streamingBehavior?: StreamingBehavior } }
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.batchDelete'; payload: { sessionIds: string[] } }

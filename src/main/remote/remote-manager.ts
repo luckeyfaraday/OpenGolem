@@ -23,7 +23,7 @@ import type {
   PairedUser,
   PairingRequest,
 } from './types';
-import type { Message, ContentBlock, ServerEvent, Session } from '../../renderer/types/index';
+import type { Message, ContentBlock, ServerEvent, Session, StreamingBehavior } from '../../renderer/types/index';
 import type { MemoryEntry } from '../../renderer/types/index';
 
 // Agent executor interface - exported for use in main process
@@ -33,7 +33,8 @@ export interface AgentExecutor {
     sessionId: string,
     prompt: string,
     content?: ContentBlock[],
-    cwd?: string
+    cwd?: string,
+    streamingBehavior?: StreamingBehavior
   ): Promise<void>;
   stopSession(sessionId: string): Promise<void>;
   renameSession?(sessionId: string, title: string): Promise<void> | void;
