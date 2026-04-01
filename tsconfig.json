@@ -22,10 +22,10 @@
     "paths": {
       "@/*": ["src/*"],
       "@main/*": ["src/main/*"],
-      "@renderer/*": ["src/renderer/*"]
+      "@renderer/*": ["src/renderer/*"],
+      "@mariozechner/pi-coding-agent": ["packages/pi-coding-agent/src/index.ts"]
     }
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
-

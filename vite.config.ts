@@ -53,6 +53,7 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
       '@main': resolve(__dirname, 'src/main'),
       '@renderer': resolve(__dirname, 'src/renderer'),
+      '@mariozechner/pi-coding-agent': resolve(__dirname, 'packages/pi-coding-agent/src/index.ts'),
     },
   },
   build: {
@@ -61,4 +62,3 @@ export default defineConfig({
     emptyOutDir: true,
   },
 });
-

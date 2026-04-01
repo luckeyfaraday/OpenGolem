@@ -6,6 +6,8 @@ const rootPackageJsonPath = path.resolve(process.cwd(), 'package.json');
 const vendoredPiPackageJsonPath = path.resolve(process.cwd(), 'packages/pi-coding-agent/package.json');
 const vendoredPiSourcePath = path.resolve(process.cwd(), 'packages/pi-coding-agent/src/core/agent-session.ts');
 const vendoredPiTsconfigPath = path.resolve(process.cwd(), 'packages/pi-coding-agent/tsconfig.build.json');
+const rootTsconfigPath = path.resolve(process.cwd(), 'tsconfig.json');
+const viteConfigPath = path.resolve(process.cwd(), 'vite.config.ts');
 
 describe('pi vendoring', () => {
   it('pins the app to the vendored pi package', () => {
@@ -40,5 +42,14 @@ describe('pi vendoring', () => {
 
     expect(rootPkg.scripts?.['build:pi-vendored']).toContain('packages/pi-coding-agent/tsconfig.build.json');
     expect(rootPkg.scripts?.['build:pi-vendored']).toContain('packages/pi-coding-agent/scripts/copy-assets.mjs');
+    expect(rootPkg.scripts?.build).toContain('npm run build:pi-vendored');
+  });
+
+  it('resolves the vendored pi package directly from the repo in compile-time configs', () => {
+    const tsconfig = fs.readFileSync(rootTsconfigPath, 'utf8');
+    const viteConfig = fs.readFileSync(viteConfigPath, 'utf8');
+
+    expect(tsconfig).toContain('"@mariozechner/pi-coding-agent": ["packages/pi-coding-agent/src/index.ts"]');
+    expect(viteConfig).toContain("'@mariozechner/pi-coding-agent': resolve(__dirname, 'packages/pi-coding-agent/src/index.ts')");
   });
 });

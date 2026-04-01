@@ -2450,6 +2450,7 @@ export class InteractiveMode {
 			}
 			default: {
 				const _exhaustive: never = message;
+				void _exhaustive;
 			}
 		}
 	}

@@ -188,6 +188,7 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 				default:
 					// biome-ignore lint/correctness/noSwitchDeclarations: fine
 					const _exhaustiveCheck: never = m;
+					void _exhaustiveCheck;
 					return undefined;
 			}
 		})

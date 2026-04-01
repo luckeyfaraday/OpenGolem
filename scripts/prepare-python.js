@@ -317,18 +317,57 @@ function extractArchive(archivePath, destDir) {
   execSync(extractCmd, { stdio: 'inherit' });
 }
 
-function ensurePipAvailable(pythonBin) {
+function canRunPip(pythonBin) {
   try {
     execSync(`${JSON.stringify(pythonBin)} -m pip --version`, { stdio: 'ignore' });
+    return true;
   } catch {
-    execSync(`${JSON.stringify(pythonBin)} -m ensurepip --upgrade`, { stdio: 'inherit' });
+    return false;
   }
+}
+
+function tryEnsurePip(pythonBin) {
+  try {
+    execSync(`${JSON.stringify(pythonBin)} -m ensurepip --upgrade`, { stdio: 'inherit' });
+    return canRunPip(pythonBin);
+  } catch {
+    return false;
+  }
+}
+
+function resolvePipPython(preferredPythonBin) {
+  const candidates = [
+    process.env.OPEN_COWORK_PIP_PYTHON,
+    preferredPythonBin,
+    'python3',
+    'python',
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (canRunPip(candidate)) {
+      return candidate;
+    }
+  }
+
+  if (tryEnsurePip(preferredPythonBin)) {
+    return preferredPythonBin;
+  }
+
+  for (const candidate of candidates) {
+    if (candidate === preferredPythonBin) continue;
+    if (tryEnsurePip(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `No usable pip interpreter found for bundled Python setup. Tried: ${candidates.join(', ')}`
+  );
 }
 
 function installPackages(siteDir, platform, platformTag, pythonBin) {
   ensureDir(siteDir);
 
-  const pipPython = process.env.OPEN_COWORK_PIP_PYTHON || pythonBin;
   const packageSpecs = getBundledGuiPackages(platform);
   const runtimeFingerprint = packageSpecs.join('|');
   const needsQuartz = packageSpecs.includes('pyobjc-framework-Quartz');
@@ -348,7 +387,8 @@ function installPackages(siteDir, platform, platformTag, pythonBin) {
   }
 
   console.log(`📦 Installing Python packages into ${siteDir} (platform=${platformTag})...`);
-  ensurePipAvailable(pipPython);
+  const pipPython = resolvePipPython(pythonBin);
+  console.log(`[prepare:python] Using pip from ${pipPython}`);
 
   // Install wheels into a target directory (no need to run the bundled python)
   // NOTE: requires network access and a working pip on the build machine.

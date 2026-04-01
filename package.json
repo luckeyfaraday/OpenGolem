@@ -8,7 +8,7 @@
     "build:version-from-ref": "node scripts/sync-version-from-ref.js",
     "dev": "npm run download:node && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && vite",
     "dev:with-python": "npm run download:node && npm run prepare:python && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && vite",
-    "build": "node scripts/patch-electron-builder.js && npm run download:node && npm run prepare:gui-tools && npm run prepare:python:all && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && tsc && vite build && node scripts/run-electron-builder.js",
+    "build": "node scripts/patch-electron-builder.js && npm run download:node && npm run prepare:gui-tools && npm run prepare:python:all && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && npm run build:pi-vendored && tsc && vite build && node scripts/run-electron-builder.js",
     "build:win": "node scripts/build-windows.js",
     "build:mac": "npm run build -- --mac dmg",
     "build:wsl-agent": "tsc -p src/main/sandbox/wsl-agent/tsconfig.json",
