@@ -1,3 +1,9 @@
+---
+name: docx
+description: "Corporate Word document generation and editing for .docx files. Use when Claude needs to create professional Word documents from structured input, preserve document templates, or produce styled report outputs."
+license: Proprietary. LICENSE.txt has complete terms
+---
+
 # SKILL.md — `/docx` Corporate Word Document Generator
 
 ## What It Does
