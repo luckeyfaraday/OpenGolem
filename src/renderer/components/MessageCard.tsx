@@ -526,14 +526,53 @@ const ContentBlockView = memo(function ContentBlockView({
 
     case 'file_attachment': {
       const fileBlock = block as FileAttachmentContent;
+      const resolvedPath = resolveFilePath(fileBlock.relativePath || fileBlock.filename);
+      const canReveal = Boolean(
+        resolvedPath &&
+        typeof window !== 'undefined' &&
+        window.electronAPI?.showItemInFolder
+      );
 
       return (
-        <div className="flex max-w-full min-w-0 items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border overflow-hidden">
+        <button
+          type="button"
+          onClick={async () => {
+            if (!canReveal || !window.electronAPI?.showItemInFolder) {
+              return;
+            }
+            try {
+              const revealed = await window.electronAPI.showItemInFolder(
+                resolvedPath,
+                currentWorkingDir ?? undefined
+              );
+              if (!revealed) {
+                setGlobalNotice({
+                  id: `message-card-file-attachment-reveal-failed-${Date.now()}`,
+                  type: 'warning',
+                  message: t('context.revealFailed'),
+                });
+              }
+            } catch (error) {
+              setGlobalNotice({
+                id: `message-card-file-attachment-reveal-failed-${Date.now()}`,
+                type: 'warning',
+                message:
+                  error instanceof Error && error.message
+                    ? error.message
+                    : t('context.revealFailed'),
+              });
+            }
+          }}
+          className={`flex max-w-full min-w-0 items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border overflow-hidden text-left ${
+            canReveal ? 'hover:bg-surface-hover transition-colors' : ''
+          }`}
+          title={resolvedPath}
+        >
           <FileText className="w-4 h-4 text-accent flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm text-text-primary truncate">{fileBlock.filename}</p>
           </div>
-        </div>
+        </button>
       );
     }
 

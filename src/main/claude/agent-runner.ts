@@ -62,7 +62,7 @@ import { ThinkTagStreamParser } from './think-tag-parser';
 import { getPiProviderForConfig, resolveConfiguredApiKey } from '../oauth/oauth-provider-runtime';
 import { performWebFetch, performWebSearch } from '../tools/web-tools';
 import { estimateMessageCostUsd } from '../config/pricing';
-import { buildToolCompletionSummary } from './agent-runner-completion';
+import { buildToolCompletionSummary, collectDeliverableFiles } from './agent-runner-completion';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -2185,6 +2185,42 @@ Tool routing:
           timestamp: Date.now(),
         });
         hasVisibleAssistantText = true;
+      }
+
+      if (!hasEmittedError) {
+        const deliverableFiles = collectDeliverableFiles(completedToolRecords);
+        if (deliverableFiles.length > 0) {
+          this.sendMessage(session.id, {
+            id: uuidv4(),
+            sessionId: session.id,
+            role: 'assistant',
+            content: [
+              {
+                type: 'text',
+                text: deliverableFiles.length === 1
+                  ? 'Generated file:'
+                  : 'Generated files:',
+              },
+              ...deliverableFiles.map((file) => {
+                const resolvedPath = file.path.trim();
+                let size = 0;
+                try {
+                  const stats = fs.statSync(resolvedPath);
+                  size = stats.size;
+                } catch {
+                  size = 0;
+                }
+                return {
+                  type: 'file_attachment' as const,
+                  filename: path.basename(resolvedPath) || resolvedPath,
+                  relativePath: resolvedPath,
+                  size,
+                };
+              }),
+            ],
+            timestamp: Date.now(),
+          });
+        }
       }
 
       // Complete - update the initial thinking step

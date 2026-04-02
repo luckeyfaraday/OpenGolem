@@ -5,6 +5,10 @@ type ToolCompletionRecord = {
   isError?: boolean;
 };
 
+export type DeliverableFile = {
+  path: string;
+};
+
 type ParsedOutput = {
   path?: string;
   filePath?: string;
@@ -28,7 +32,8 @@ function extractFilePathFromText(text: string): string | null {
     || text.match(/File created successfully at:?\s*(.+)$/i)
     || text.match(/Successfully wrote \d+ bytes to ([^\r\n]+)/i)
     || text.match(/The file (.+?) has been updated(?: successfully)?(?:\.|$)/i)
-    || text.match(/Saved screenshot to ([^\r\n]+)/i);
+    || text.match(/Saved screenshot to ([^\r\n]+)/i)
+    || text.match(/Document saved to:\s*([^\r\n]+)/i);
   if (!match || !match[1]) {
     return null;
   }
@@ -136,6 +141,57 @@ function summarizeToolCompletion(record: ToolCompletionRecord): string | null {
   return `used ${record.toolName}`;
 }
 
+function isLikelyCodeFile(pathValue: string): boolean {
+  const normalized = pathValue.trim().toLowerCase();
+  const lastDot = normalized.lastIndexOf('.');
+  const ext = lastDot >= 0 ? normalized.slice(lastDot + 1) : '';
+  return new Set([
+    'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'go', 'rs', 'c', 'cc', 'cpp', 'h', 'hpp',
+    'rb', 'php', 'swift', 'kt', 'kts', 'scala', 'sh', 'bash', 'zsh', 'ps1', 'sql',
+    'json', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'lock',
+  ]).has(ext);
+}
+
+export function collectDeliverableFiles(records: ToolCompletionRecord[]): DeliverableFile[] {
+  const candidates: Array<{ path: string; index: number }> = [];
+
+  records.forEach((record, index) => {
+    if (record.isError) {
+      return;
+    }
+
+    const toolName = record.toolName.toLowerCase();
+    if (toolName === 'read' || toolName === 'edit' || toolName === 'websearch' || toolName === 'webfetch') {
+      return;
+    }
+
+    const outputPath = extractFilePathFromToolOutput(record.toolOutput);
+    const inputPath = toolName === 'write' ? extractFilePathFromToolInput(record.toolInput) : null;
+    const path = outputPath || inputPath;
+    if (!path) {
+      return;
+    }
+
+    candidates.push({ path, index });
+  });
+
+  const dedupedFromEnd: Array<{ path: string; index: number }> = [];
+  const seen = new Set<string>();
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const candidate = candidates[i]!;
+    if (seen.has(candidate.path)) {
+      continue;
+    }
+    seen.add(candidate.path);
+    dedupedFromEnd.unshift(candidate);
+  }
+
+  const nonCode = dedupedFromEnd.filter((candidate) => !isLikelyCodeFile(candidate.path));
+  const preferred = nonCode.length > 0 ? nonCode : dedupedFromEnd;
+
+  return preferred.slice(-3).map((candidate) => ({ path: candidate.path }));
+}
+
 export function buildToolCompletionSummary(records: ToolCompletionRecord[]): string {
   const actions = Array.from(
     new Set(
@@ -151,4 +207,3 @@ export function buildToolCompletionSummary(records: ToolCompletionRecord[]): str
 
   return `Done. ${capitalize(formatList(actions))}.`;
 }
-

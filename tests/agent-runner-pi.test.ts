@@ -82,6 +82,12 @@ describe('ClaudeAgentRunner pi-coding-agent integration', () => {
     expect(agentRunnerContent).toContain('if (!hasEmittedError && !hasVisibleAssistantText) {');
   });
 
+  it('sends generated files back into chat as file attachments after a successful turn', () => {
+    expect(agentRunnerContent).toContain('const deliverableFiles = collectDeliverableFiles(completedToolRecords);');
+    expect(agentRunnerContent).toContain("text: deliverableFiles.length === 1");
+    expect(agentRunnerContent).toContain("type: 'file_attachment' as const");
+  });
+
   it('nudges the model to proceed with reasonable assumptions', () => {
     expect(agentRunnerContent).toContain('proceed immediately with reasonable assumptions');
     expect(agentRunnerContent).toContain('within two days');

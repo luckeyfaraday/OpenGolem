@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildToolCompletionSummary } from '../src/main/claude/agent-runner-completion';
+import {
+  buildToolCompletionSummary,
+  collectDeliverableFiles,
+} from '../src/main/claude/agent-runner-completion';
 
 describe('buildToolCompletionSummary', () => {
   it('summarizes concrete read and write actions with paths', () => {
@@ -31,5 +34,24 @@ describe('buildToolCompletionSummary', () => {
     ]);
 
     expect(result).toBe('Done. Searched the web for "platt market on close" and fetched https://example.com/report.');
+  });
+
+  it('prefers final non-code deliverables over helper scripts', () => {
+    const result = collectDeliverableFiles([
+      {
+        toolName: 'write',
+        toolOutput: JSON.stringify({
+          content: [{ type: 'text', text: 'Successfully wrote 2400 bytes to /tmp/create_security_doc.py' }],
+        }),
+      },
+      {
+        toolName: 'bash',
+        toolOutput: JSON.stringify({
+          content: [{ type: 'text', text: 'Document saved to: /tmp/Security_Channels_and_Devices.docx' }],
+        }),
+      },
+    ]);
+
+    expect(result).toEqual([{ path: '/tmp/Security_Channels_and_Devices.docx' }]);
   });
 });
