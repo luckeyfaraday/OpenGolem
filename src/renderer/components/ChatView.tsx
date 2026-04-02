@@ -22,7 +22,6 @@ import {
 } from '../utils/slash-commands';
 import {
   buildNotebookLMHandoffText,
-  buildNotebookLMMissingCliText,
   isPresentationPipelineCandidate,
 } from '../utils/presentation-pipeline';
 import { Send, Square, Plus, Loader2, Plug, X, Clock } from 'lucide-react';
@@ -651,20 +650,47 @@ export function ChatView() {
         return;
       }
 
-      const status = await window.electronAPI.notebooklm.checkStatus();
-      if (!status.available) {
+      const sourcePaths = attachedFiles
+        .map((file) => file.path?.trim() || '')
+        .filter((filePath) => filePath.length > 0);
+      const localSkippedSources =
+        pastedImages.length + attachedFiles.filter((file) => !(file.path && file.path.trim())).length;
+
+      const preparation = await window.electronAPI.notebooklm.preparePresentationDeck({
+        title: activeSession?.title || getInitialSessionTitle(trimmedPrompt),
+        prompt: trimmedPrompt,
+        sourcePaths,
+      });
+
+      if (preparation.status === 'unavailable') {
         setGlobalNotice({
           id: `notice-notebooklm-${Date.now()}`,
           type: 'error',
-          message: buildNotebookLMMissingCliText(status.command),
+          message: preparation.message,
         });
         return;
       }
 
-      let loginStarted = false;
-      if (!status.authenticated) {
+      if (preparation.status === 'requires_login') {
         const loginResult = await window.electronAPI.notebooklm.startLogin();
-        loginStarted = loginResult.started;
+        const opened = await window.electronAPI.notebooklm.openWebApp();
+        setGlobalNotice({
+          id: `notice-notebooklm-${Date.now()}`,
+          type: opened ? 'warning' : 'error',
+          message: loginResult.started
+            ? 'NotebookLM sign-in started. Finish authentication in the browser, then resend this presentation request.'
+            : 'NotebookLM authentication is required before sources can be uploaded.',
+        });
+        return;
+      }
+
+      if (preparation.status === 'error') {
+        setGlobalNotice({
+          id: `notice-notebooklm-${Date.now()}`,
+          type: 'error',
+          message: preparation.message,
+        });
+        return;
       }
 
       const opened = await window.electronAPI.notebooklm.openWebApp();
@@ -676,9 +702,10 @@ export function ChatView() {
           {
             type: 'text',
             text: buildNotebookLMHandoffText(trimmedPrompt, {
-              authenticated: status.authenticated,
-              loginStarted,
-              attachmentCount: attachedFiles.length,
+              notebookTitle: preparation.notebookTitle,
+              notebookId: preparation.notebookId,
+              importedSources: preparation.importedSources,
+              skippedSources: preparation.skippedSources + localSkippedSources,
             }),
           },
         ],
@@ -697,8 +724,8 @@ export function ChatView() {
         id: `notice-notebooklm-${Date.now()}`,
         type: opened ? 'success' : 'warning',
         message: opened
-          ? 'NotebookLM opened in your browser.'
-          : 'NotebookLM handoff prepared, but opening the browser failed.',
+          ? 'NotebookLM notebook prepared and opened in your browser.'
+          : 'NotebookLM notebook was prepared, but opening the browser failed.',
       });
     };
 
@@ -882,20 +909,47 @@ export function ChatView() {
               return;
             }
 
-            const status = await window.electronAPI.notebooklm.checkStatus();
-            if (!status.available) {
+            const sourcePaths = attachedFiles
+              .map((file) => file.path?.trim() || '')
+              .filter((filePath) => filePath.length > 0);
+            const localSkippedSources =
+              pastedImages.length + attachedFiles.filter((file) => !(file.path && file.path.trim())).length;
+
+            const preparation = await window.electronAPI.notebooklm.preparePresentationDeck({
+              title: activeSession?.title || getInitialSessionTitle(trimmedPrompt),
+              prompt: trimmedPrompt,
+              sourcePaths,
+            });
+
+            if (preparation.status === 'unavailable') {
               setGlobalNotice({
                 id: `notice-notebooklm-${Date.now()}`,
                 type: 'error',
-                message: buildNotebookLMMissingCliText(status.command),
+                message: preparation.message,
               });
               return;
             }
 
-            let loginStarted = false;
-            if (!status.authenticated) {
+            if (preparation.status === 'requires_login') {
               const loginResult = await window.electronAPI.notebooklm.startLogin();
-              loginStarted = loginResult.started;
+              const opened = await window.electronAPI.notebooklm.openWebApp();
+              setGlobalNotice({
+                id: `notice-notebooklm-${Date.now()}`,
+                type: opened ? 'warning' : 'error',
+                message: loginResult.started
+                  ? 'NotebookLM sign-in started. Finish authentication in the browser, then resend this presentation request.'
+                  : 'NotebookLM authentication is required before sources can be uploaded.',
+              });
+              return;
+            }
+
+            if (preparation.status === 'error') {
+              setGlobalNotice({
+                id: `notice-notebooklm-${Date.now()}`,
+                type: 'error',
+                message: preparation.message,
+              });
+              return;
             }
 
             const opened = await window.electronAPI.notebooklm.openWebApp();
@@ -907,9 +961,10 @@ export function ChatView() {
                 {
                   type: 'text',
                   text: buildNotebookLMHandoffText(trimmedPrompt, {
-                    authenticated: status.authenticated,
-                    loginStarted,
-                    attachmentCount: attachedFiles.length,
+                    notebookTitle: preparation.notebookTitle,
+                    notebookId: preparation.notebookId,
+                    importedSources: preparation.importedSources,
+                    skippedSources: preparation.skippedSources + localSkippedSources,
                   }),
                 },
               ],
@@ -934,8 +989,8 @@ export function ChatView() {
               id: `notice-notebooklm-${Date.now()}`,
               type: opened ? 'success' : 'warning',
               message: opened
-                ? 'NotebookLM opened in your browser.'
-                : 'NotebookLM handoff prepared, but opening the browser failed.',
+                ? 'NotebookLM notebook prepared and opened in your browser.'
+                : 'NotebookLM notebook was prepared, but opening the browser failed.',
             });
             return;
           }

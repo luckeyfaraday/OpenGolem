@@ -21,23 +21,23 @@ export function isPresentationPipelineCandidate(prompt: string): boolean {
 export function buildNotebookLMHandoffText(
   prompt: string,
   options: {
-    authenticated: boolean;
-    loginStarted?: boolean;
-    attachmentCount?: number;
+    notebookTitle: string;
+    notebookId?: string;
+    importedSources: number;
+    skippedSources?: number;
   }
 ): string {
   const lines: string[] = [];
   lines.push('NotebookLM pipeline selected.');
-  if (options.authenticated) {
-    lines.push('I opened NotebookLM in your browser so you can generate the deck there directly instead of waiting here for a long-running job.');
-  } else if (options.loginStarted) {
-    lines.push('I started the NotebookLM sign-in flow and opened NotebookLM in your browser.');
-  } else {
-    lines.push('NotebookLM sign-in is still required before you can use that pipeline.');
+  lines.push(`Notebook: ${options.notebookTitle}`);
+  if (options.notebookId) {
+    lines.push(`Notebook ID: ${options.notebookId}`);
   }
-  if ((options.attachmentCount || 0) > 0) {
-    lines.push(`You have ${options.attachmentCount} attached source file${options.attachmentCount === 1 ? '' : 's'} here. They were not uploaded automatically, so add them manually in NotebookLM.`);
+  lines.push(`Imported sources: ${options.importedSources}`);
+  if ((options.skippedSources || 0) > 0) {
+    lines.push(`Skipped sources: ${options.skippedSources}. Add those manually in NotebookLM if you still need them.`);
   }
+  lines.push('I started the NotebookLM slide-deck generation flow and opened NotebookLM in your browser so you can continue there instead of waiting here for a long-running download.');
   lines.push('Use this brief in NotebookLM:');
   lines.push(prompt.trim());
   return lines.join('\n\n');

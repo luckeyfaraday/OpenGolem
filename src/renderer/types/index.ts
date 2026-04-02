@@ -350,6 +350,22 @@ export interface NotebookLMStatus {
   message?: string;
 }
 
+export interface NotebookLMPresentationPreparationInput {
+  title: string;
+  prompt: string;
+  sourcePaths: string[];
+}
+
+export interface NotebookLMPresentationPreparationResult {
+  status: 'ready' | 'requires_login' | 'unavailable' | 'error';
+  notebookId?: string;
+  notebookTitle: string;
+  importedSources: number;
+  skippedSources: number;
+  generated: boolean;
+  message: string;
+}
+
 // IPC Event types
 export type ClientEvent =
   | { type: 'session.start'; payload: { title: string; prompt: string; cwd?: string; allowedTools?: string[]; content?: ContentBlock[] } }

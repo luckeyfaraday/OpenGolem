@@ -14,14 +14,17 @@ describe('presentation pipeline helpers', () => {
 
   it('builds a notebooklm handoff with attachment guidance', () => {
     const text = buildNotebookLMHandoffText('Build a presentation about LNG shipping.', {
-      authenticated: false,
-      loginStarted: true,
-      attachmentCount: 2,
+      notebookTitle: 'LNG Shipping Deck',
+      notebookId: 'nb-123',
+      importedSources: 3,
+      skippedSources: 2,
     });
 
     expect(text).toContain('NotebookLM pipeline selected.');
-    expect(text).toContain('sign-in flow');
-    expect(text).toContain('2 attached source files');
+    expect(text).toContain('LNG Shipping Deck');
+    expect(text).toContain('nb-123');
+    expect(text).toContain('Imported sources: 3');
+    expect(text).toContain('Skipped sources: 2');
     expect(text).toContain('Build a presentation about LNG shipping.');
   });
 

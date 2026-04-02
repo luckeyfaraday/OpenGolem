@@ -23,6 +23,8 @@ import type {
   ProjectTaskCreateInput,
   ProjectTaskUpdateInput,
   NotebookLMStatus,
+  NotebookLMPresentationPreparationInput,
+  NotebookLMPresentationPreparationResult,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
 
@@ -369,6 +371,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     checkStatus: (): Promise<NotebookLMStatus> => ipcRenderer.invoke('notebooklm.status'),
     startLogin: (): Promise<{ started: boolean; message?: string }> => ipcRenderer.invoke('notebooklm.login'),
     openWebApp: (): Promise<boolean> => ipcRenderer.invoke('notebooklm.openWebApp'),
+    preparePresentationDeck: (
+      input: NotebookLMPresentationPreparationInput
+    ): Promise<NotebookLMPresentationPreparationResult> => ipcRenderer.invoke('notebooklm.preparePresentationDeck', input),
   },
 });
 
@@ -579,6 +584,9 @@ declare global {
         checkStatus: () => Promise<NotebookLMStatus>;
         startLogin: () => Promise<{ started: boolean; message?: string }>;
         openWebApp: () => Promise<boolean>;
+        preparePresentationDeck: (
+          input: NotebookLMPresentationPreparationInput
+        ) => Promise<NotebookLMPresentationPreparationResult>;
       };
     };
   }

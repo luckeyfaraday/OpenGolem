@@ -1135,6 +1135,10 @@ ipcMain.handle('notebooklm.openWebApp', async () => {
   return notebookLMService.openWebApp();
 });
 
+ipcMain.handle('notebooklm.preparePresentationDeck', async (_event, input) => {
+  return notebookLMService.preparePresentationDeck(input);
+});
+
 ipcMain.handle('shell.openExternal', async (_event, url: string) => {
   if (!url) {
     return false;

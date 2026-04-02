@@ -20,7 +20,6 @@ import {
   parseSlashCommand,
 } from '../utils/slash-commands';
 import {
-  buildNotebookLMMissingCliText,
   isPresentationPipelineCandidate,
 } from '../utils/presentation-pipeline';
 import {
@@ -466,25 +465,44 @@ export function WelcomeView() {
             setPreferredPresentationPipeline(pipeline);
           }
 
-          const status = await window.electronAPI.notebooklm.checkStatus();
-          if (!status.available) {
-            pushNotice(buildNotebookLMMissingCliText(status.command), 'error');
+          const sourcePaths = attachedFiles
+            .map((file) => file.path?.trim() || '')
+            .filter((filePath) => filePath.length > 0);
+
+          const preparation = await window.electronAPI.notebooklm.preparePresentationDeck({
+            title: getInitialSessionTitle(currentPrompt, attachedFiles[0]?.name),
+            prompt: trimmedPrompt,
+            sourcePaths,
+          });
+
+          if (preparation.status === 'unavailable') {
+            pushNotice(preparation.message, 'error');
             return;
           }
 
-          let loginStarted = false;
-          if (!status.authenticated) {
+          if (preparation.status === 'requires_login') {
             const loginResult = await window.electronAPI.notebooklm.startLogin();
-            loginStarted = loginResult.started;
+            const opened = await window.electronAPI.notebooklm.openWebApp();
+            pushNotice(
+              loginResult.started || opened
+                ? 'NotebookLM sign-in started. Finish authentication in the browser, then resend this presentation request.'
+                : 'NotebookLM authentication is required before sources can be uploaded.',
+              opened ? 'warning' : 'error'
+            );
+            return;
+          }
+
+          if (preparation.status === 'error') {
+            pushNotice(preparation.message, 'error');
+            return;
           }
 
           const opened = await window.electronAPI.notebooklm.openWebApp();
+          clearComposer();
           pushNotice(
             opened
-              ? loginStarted
-                ? 'NotebookLM sign-in started and NotebookLM was opened in your browser. Your prompt is still in the composer so you can paste it there.'
-                : 'NotebookLM was opened in your browser. Your prompt is still in the composer so you can paste it there.'
-              : 'NotebookLM handoff is ready, but opening the browser failed. Your prompt is still in the composer.',
+              ? `NotebookLM notebook "${preparation.notebookTitle}" is ready and was opened in your browser.`
+              : `NotebookLM notebook "${preparation.notebookTitle}" is ready, but opening the browser failed.`,
             opened ? 'success' : 'warning'
           );
           return;
@@ -601,31 +619,61 @@ export function WelcomeView() {
         return;
       }
 
-      const status = await window.electronAPI.notebooklm.checkStatus();
-      if (!status.available) {
+      const sourcePaths = attachedFiles
+        .map((file) => file.path?.trim() || '')
+        .filter((filePath) => filePath.length > 0);
+
+      const preparation = await window.electronAPI.notebooklm.preparePresentationDeck({
+        title: getInitialSessionTitle(currentPrompt, attachedFiles[0]?.name),
+        prompt: trimmedPrompt,
+        sourcePaths,
+      });
+
+      if (preparation.status === 'unavailable') {
         setGlobalNotice({
           id: `notice-notebooklm-${Date.now()}`,
           type: 'error',
-          message: buildNotebookLMMissingCliText(status.command),
+          message: preparation.message,
         });
         return;
       }
 
-      let loginStarted = false;
-      if (!status.authenticated) {
+      if (preparation.status === 'requires_login') {
         const loginResult = await window.electronAPI.notebooklm.startLogin();
-        loginStarted = loginResult.started;
+        const opened = await window.electronAPI.notebooklm.openWebApp();
+        setGlobalNotice({
+          id: `notice-notebooklm-${Date.now()}`,
+          type: opened ? 'warning' : 'error',
+          message: loginResult.started
+            ? 'NotebookLM sign-in started. Finish authentication in the browser, then resend this presentation request.'
+            : 'NotebookLM authentication is required before sources can be uploaded.',
+        });
+        return;
+      }
+
+      if (preparation.status === 'error') {
+        setGlobalNotice({
+          id: `notice-notebooklm-${Date.now()}`,
+          type: 'error',
+          message: preparation.message,
+        });
+        return;
       }
 
       const opened = await window.electronAPI.notebooklm.openWebApp();
+      setPrompt('');
+      if (textareaRef.current) {
+        textareaRef.current.value = '';
+      }
+      pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
+      setPastedImages([]);
+      setAttachedFiles([]);
       setGlobalNotice({
         id: `notice-notebooklm-${Date.now()}`,
         type: opened ? 'success' : 'warning',
         message: opened
-          ? loginStarted
-            ? 'NotebookLM sign-in started and NotebookLM was opened in your browser. Your prompt is still in the composer so you can paste it there.'
-            : 'NotebookLM was opened in your browser. Your prompt is still in the composer so you can paste it there.'
-          : 'NotebookLM handoff is ready, but opening the browser failed. Your prompt is still in the composer.',
+          ? `NotebookLM notebook "${preparation.notebookTitle}" is ready and was opened in your browser.`
+          : `NotebookLM notebook "${preparation.notebookTitle}" is ready, but opening the browser failed.`,
       });
     } finally {
       setIsSubmitting(false);

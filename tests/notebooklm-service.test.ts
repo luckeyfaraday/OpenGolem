@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const { execFileMock, spawnMock, openExternalMock } = vi.hoisted(() => ({
   execFileMock: vi.fn(),
@@ -77,5 +80,40 @@ describe('NotebookLMService', () => {
     const service = new NotebookLMService();
     await expect(service.openWebApp()).resolves.toBe(true);
     expect(openExternalMock).toHaveBeenCalledWith('https://notebooklm.google.com/');
+  });
+
+  it('prepares a notebook, uploads sources, and starts slide deck generation', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'notebooklm-test-'));
+    const sourcePath = join(tempDir, 'brief.pdf');
+    writeFileSync(sourcePath, 'fake');
+
+    mockExecFileSuccess('1.0.0\n');
+    mockExecFileSuccess('authenticated\n');
+    mockExecFileSuccess(JSON.stringify({ id: 'nb-123', title: 'Board Deck' }));
+    mockExecFileSuccess('');
+    mockExecFileSuccess(JSON.stringify({ id: 'src-1' }));
+    mockExecFileSuccess(JSON.stringify({ id: 'src-brief' }));
+    mockExecFileSuccess(JSON.stringify({ task_id: 'task-1' }));
+
+    const service = new NotebookLMService();
+    const result = await service.preparePresentationDeck({
+      title: 'Board Deck',
+      prompt: 'Build a board presentation.',
+      sourcePaths: [sourcePath],
+    });
+
+    expect(result).toMatchObject({
+      status: 'ready',
+      notebookId: 'nb-123',
+      notebookTitle: 'Board Deck',
+      importedSources: 2,
+      generated: true,
+    });
+    expect(execFileMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining(['generate', 'slide-deck', 'Build a board presentation.']),
+      expect.any(Object),
+      expect.any(Function)
+    );
   });
 });
