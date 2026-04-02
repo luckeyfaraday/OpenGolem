@@ -4,7 +4,8 @@ import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import { MessageCard } from './MessageCard';
 import { SlashCommandMenu } from './SlashCommandMenu';
-import type { Message, ContentBlock } from '../types';
+import { PresentationPipelineDialog } from './PresentationPipelineDialog';
+import type { Message, ContentBlock, PresentationPipeline } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
 import {
   buildSlashCommandHelpText,
@@ -19,6 +20,11 @@ import {
   isKnownSlashCommand,
   parseSlashCommand,
 } from '../utils/slash-commands';
+import {
+  buildNotebookLMHandoffText,
+  buildNotebookLMMissingCliText,
+  isPresentationPipelineCandidate,
+} from '../utils/presentation-pipeline';
 import { Send, Square, Plus, Loader2, Plug, X, Clock } from 'lucide-react';
 
 type AttachedFile = {
@@ -42,12 +48,17 @@ export function ChatView() {
   const appConfig = useAppStore((s) => s.appConfig);
   const workingDir = useAppStore((s) => s.workingDir);
   const addMessage = useAppStore((s) => s.addMessage);
+  const setMessages = useAppStore((s) => s.setMessages);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
+  const presentationPipelineBySession = useAppStore((s) => s.presentationPipelineBySession);
+  const setPresentationPipeline = useAppStore((s) => s.setPresentationPipeline);
   const { continueSession, startSession, stopSession, addMemory, searchMemory, listMemory, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPipelineDialog, setShowPipelineDialog] = useState(false);
+  const [pipelinePromptPreview, setPipelinePromptPreview] = useState('');
   const [selectedSlashCommandIndex, setSelectedSlashCommandIndex] = useState(0);
   const [activeConnectors, setActiveConnectors] = useState<any[]>([]);
   const [showConnectorLabel, setShowConnectorLabel] = useState(true);
@@ -84,6 +95,9 @@ export function ChatView() {
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
   const slashSuggestions = useMemo(() => getSlashCommandSuggestions(prompt), [prompt]);
+  const rememberedPresentationPipeline = activeSessionId
+    ? presentationPipelineBySession[activeSessionId] || null
+    : null;
 
   const displayedMessages = useMemo(() => {
     if (!activeSessionId) return messages;
@@ -572,27 +586,135 @@ export function ChatView() {
     )
       return;
 
-    setIsSubmitting(true);
-    try {
-      const clearComposer = () => {
-        setPrompt('');
-        if (textareaRef.current) {
-          textareaRef.current.value = '';
-        }
-        pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
-        setPastedImages([]);
-        setAttachedFiles([]);
-      };
+    const clearComposer = () => {
+      setPrompt('');
+      if (textareaRef.current) {
+        textareaRef.current.value = '';
+      }
+      pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
+      setPastedImages([]);
+      setAttachedFiles([]);
+    };
 
-      const pushLocalCommandMessage = (text: string) => {
-        addMessage(activeSessionId, {
-          id: `slash-${Date.now()}`,
-          sessionId: activeSessionId,
-          role: 'system',
-          content: [{ type: 'text', text }],
-          timestamp: Date.now(),
+    const pushLocalCommandMessage = (text: string) => {
+      addMessage(activeSessionId, {
+        id: `slash-${Date.now()}`,
+        sessionId: activeSessionId,
+        role: 'system',
+        content: [{ type: 'text', text }],
+        timestamp: Date.now(),
+      });
+    };
+
+    const buildContentBlocks = (): ContentBlock[] => {
+      const contentBlocks: ContentBlock[] = [];
+
+      pastedImages.forEach((img) => {
+        contentBlocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: img.mediaType as any,
+            data: img.base64,
+          },
         });
+      });
+
+      attachedFiles.forEach((file) => {
+        contentBlocks.push({
+          type: 'file_attachment',
+          filename: file.name,
+          relativePath: file.path,
+          size: file.size,
+          mimeType: file.type,
+          inlineDataBase64: file.inlineDataBase64,
+        });
+      });
+
+      if (trimmedPrompt) {
+        contentBlocks.push({
+          type: 'text',
+          text: trimmedPrompt,
+        });
+      }
+
+      return contentBlocks;
+    };
+
+    const handoffToNotebookLM = async (contentBlocks: ContentBlock[]) => {
+      if (!window.electronAPI?.notebooklm) {
+        setGlobalNotice({
+          id: `notice-notebooklm-${Date.now()}`,
+          type: 'error',
+          message: 'NotebookLM integration is only available in the desktop app.',
+        });
+        return;
+      }
+
+      const status = await window.electronAPI.notebooklm.checkStatus();
+      if (!status.available) {
+        setGlobalNotice({
+          id: `notice-notebooklm-${Date.now()}`,
+          type: 'error',
+          message: buildNotebookLMMissingCliText(status.command),
+        });
+        return;
+      }
+
+      let loginStarted = false;
+      if (!status.authenticated) {
+        const loginResult = await window.electronAPI.notebooklm.startLogin();
+        loginStarted = loginResult.started;
+      }
+
+      const opened = await window.electronAPI.notebooklm.openWebApp();
+      const assistantMessage: Message = {
+        id: `notebooklm-assistant-${Date.now()}`,
+        sessionId: activeSessionId,
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: buildNotebookLMHandoffText(trimmedPrompt, {
+              authenticated: status.authenticated,
+              loginStarted,
+              attachmentCount: attachedFiles.length,
+            }),
+          },
+        ],
+        timestamp: Date.now(),
       };
+      const userMessage: Message = {
+        id: `notebooklm-user-${Date.now()}`,
+        sessionId: activeSessionId,
+        role: 'user',
+        content: contentBlocks,
+        timestamp: Date.now(),
+      };
+      setMessages(activeSessionId, [...messages, userMessage, assistantMessage]);
+      clearComposer();
+      setGlobalNotice({
+        id: `notice-notebooklm-${Date.now()}`,
+        type: opened ? 'success' : 'warning',
+        message: opened
+          ? 'NotebookLM opened in your browser.'
+          : 'NotebookLM handoff prepared, but opening the browser failed.',
+      });
+    };
+
+    const submitWithPipeline = async (pipeline: PresentationPipeline | null) => {
+      setIsSubmitting(true);
+      try {
+        const effectivePipeline =
+          pipeline || (isPresentationPipelineCandidate(trimmedPrompt)
+            ? rememberedPresentationPipeline
+            : null);
+
+        if (!pipeline && trimmedPrompt && isPresentationPipelineCandidate(trimmedPrompt) && !effectivePipeline) {
+          setPipelinePromptPreview(trimmedPrompt);
+          setShowPipelineDialog(true);
+          return;
+        }
 
       const slashCommand = parseSlashCommand(trimmedPrompt);
       if (slashCommand) {
@@ -685,50 +807,164 @@ export function ChatView() {
         }
       }
 
-      // Build content blocks
-      const contentBlocks: ContentBlock[] = [];
+        const contentBlocks = buildContentBlocks();
 
-      // Add images first
-      pastedImages.forEach((img) => {
-        contentBlocks.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: img.mediaType as any,
-            data: img.base64,
-          },
-        });
-      });
+        if (pipeline === 'notebooklm' || effectivePipeline === 'notebooklm') {
+          if (pipeline && activeSessionId) {
+            setPresentationPipeline(activeSessionId, pipeline);
+          }
+          await handoffToNotebookLM(contentBlocks);
+          return;
+        }
 
-      // Add file attachments
-      attachedFiles.forEach((file) => {
-        contentBlocks.push({
-          type: 'file_attachment',
-          filename: file.name,
-          relativePath: file.path, // Will be processed by backend to copy to .tmp
-          size: file.size,
-          mimeType: file.type,
-          inlineDataBase64: file.inlineDataBase64,
-        });
-      });
+        if (pipeline && activeSessionId) {
+          setPresentationPipeline(activeSessionId, pipeline);
+        }
 
-      // Add text if present
-      if (trimmedPrompt) {
-        contentBlocks.push({
-          type: 'text',
-          text: trimmedPrompt,
-        });
+        await continueSession(activeSessionId, contentBlocks);
+        clearComposer();
+      } finally {
+        setIsSubmitting(false);
       }
+    };
 
-      // Send message with content blocks
-      await continueSession(activeSessionId, contentBlocks);
-
-      // Clean up
-      clearComposer();
-    } finally {
-      setIsSubmitting(false);
-    }
+    await submitWithPipeline(null);
   };
+
+  const handlePipelineSelection = useCallback(
+    async (pipeline: PresentationPipeline) => {
+      if (!activeSessionId) {
+        return;
+      }
+      setShowPipelineDialog(false);
+      setPipelinePromptPreview('');
+      await (async () => {
+        const currentPrompt = textareaRef.current?.value || prompt;
+        const trimmedPrompt = currentPrompt.trim();
+        if (!trimmedPrompt) {
+          return;
+        }
+        const contentBlocks: ContentBlock[] = [];
+        pastedImages.forEach((img) => {
+          contentBlocks.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: img.mediaType as any,
+              data: img.base64,
+            },
+          });
+        });
+        attachedFiles.forEach((file) => {
+          contentBlocks.push({
+            type: 'file_attachment',
+            filename: file.name,
+            relativePath: file.path,
+            size: file.size,
+            mimeType: file.type,
+            inlineDataBase64: file.inlineDataBase64,
+          });
+        });
+        if (trimmedPrompt) {
+          contentBlocks.push({ type: 'text', text: trimmedPrompt });
+        }
+
+        setIsSubmitting(true);
+        try {
+          setPresentationPipeline(activeSessionId, pipeline);
+          if (pipeline === 'notebooklm') {
+            if (!window.electronAPI?.notebooklm) {
+              setGlobalNotice({
+                id: `notice-notebooklm-${Date.now()}`,
+                type: 'error',
+                message: 'NotebookLM integration is only available in the desktop app.',
+              });
+              return;
+            }
+
+            const status = await window.electronAPI.notebooklm.checkStatus();
+            if (!status.available) {
+              setGlobalNotice({
+                id: `notice-notebooklm-${Date.now()}`,
+                type: 'error',
+                message: buildNotebookLMMissingCliText(status.command),
+              });
+              return;
+            }
+
+            let loginStarted = false;
+            if (!status.authenticated) {
+              const loginResult = await window.electronAPI.notebooklm.startLogin();
+              loginStarted = loginResult.started;
+            }
+
+            const opened = await window.electronAPI.notebooklm.openWebApp();
+            const assistantMessage: Message = {
+              id: `notebooklm-assistant-${Date.now()}`,
+              sessionId: activeSessionId,
+              role: 'assistant',
+              content: [
+                {
+                  type: 'text',
+                  text: buildNotebookLMHandoffText(trimmedPrompt, {
+                    authenticated: status.authenticated,
+                    loginStarted,
+                    attachmentCount: attachedFiles.length,
+                  }),
+                },
+              ],
+              timestamp: Date.now(),
+            };
+            const userMessage: Message = {
+              id: `notebooklm-user-${Date.now()}`,
+              sessionId: activeSessionId,
+              role: 'user',
+              content: contentBlocks,
+              timestamp: Date.now(),
+            };
+            setMessages(activeSessionId, [...messages, userMessage, assistantMessage]);
+            setPrompt('');
+            if (textareaRef.current) {
+              textareaRef.current.value = '';
+            }
+            pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
+            setPastedImages([]);
+            setAttachedFiles([]);
+            setGlobalNotice({
+              id: `notice-notebooklm-${Date.now()}`,
+              type: opened ? 'success' : 'warning',
+              message: opened
+                ? 'NotebookLM opened in your browser.'
+                : 'NotebookLM handoff prepared, but opening the browser failed.',
+            });
+            return;
+          }
+
+          await continueSession(activeSessionId, contentBlocks);
+          setPrompt('');
+          if (textareaRef.current) {
+            textareaRef.current.value = '';
+          }
+          pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
+          setPastedImages([]);
+          setAttachedFiles([]);
+        } finally {
+          setIsSubmitting(false);
+        }
+      })();
+    },
+    [
+      activeSessionId,
+      attachedFiles,
+      continueSession,
+      messages,
+      pastedImages,
+      prompt,
+      setGlobalNotice,
+      setMessages,
+      setPresentationPipeline,
+    ]
+  );
 
   const applySlashCommand = useCallback((commandName: string) => {
     const nextValue = `/${commandName} `;
@@ -1017,6 +1253,15 @@ export function ChatView() {
           </form>
         </div>
       </div>
+      <PresentationPipelineDialog
+        open={showPipelineDialog}
+        promptPreview={pipelinePromptPreview}
+        onSelect={handlePipelineSelection}
+        onCancel={() => {
+          setShowPipelineDialog(false);
+          setPipelinePromptPreview('');
+        }}
+      />
     </div>
   );
 }

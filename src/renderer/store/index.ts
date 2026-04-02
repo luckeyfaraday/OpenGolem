@@ -10,6 +10,7 @@ import type {
   SandboxSetupProgress,
   SandboxSyncStatus,
   SkillsStorageChangeEvent,
+  PresentationPipeline,
 } from '../types';
 import { applySessionUpdate } from '../utils/session-update';
 
@@ -43,6 +44,7 @@ interface AppState {
   pendingTurnsBySession: Record<string, string[]>;
   activeTurnsBySession: Record<string, { stepId: string; userMessageId: string } | null>;
   executionClockBySession: Record<string, SessionExecutionClock>;
+  presentationPipelineBySession: Record<string, PresentationPipeline>;
 
   // Trace steps
   traceStepsBySession: Record<string, TraceStep[]>;
@@ -99,6 +101,8 @@ interface AppState {
   removeSession: (sessionId: string) => void;
   removeSessions: (sessionIds: string[]) => void;
   setActiveSession: (sessionId: string | null) => void;
+  setPresentationPipeline: (sessionId: string, pipeline: PresentationPipeline) => void;
+  clearPresentationPipeline: (sessionId: string) => void;
 
   addMessage: (sessionId: string, message: Message) => void;
   startExecutionClock: (sessionId: string, startAt: number) => void;
@@ -204,6 +208,7 @@ export const useAppStore = create<AppState>((set) => ({
   pendingTurnsBySession: {},
   activeTurnsBySession: {},
   executionClockBySession: {},
+  presentationPipelineBySession: {},
   traceStepsBySession: {},
   isLoading: false,
   sidebarCollapsed: false,
@@ -246,6 +251,7 @@ export const useAppStore = create<AppState>((set) => ({
         ...state.executionClockBySession,
         [session.id]: { startAt: null, endAt: null },
       },
+      presentationPipelineBySession: { ...state.presentationPipelineBySession },
       traceStepsBySession: { ...state.traceStepsBySession, [session.id]: [] },
     })),
 
@@ -263,6 +269,8 @@ export const useAppStore = create<AppState>((set) => ({
       const { [sessionId]: __pending, ...restPendingTurns } = state.pendingTurnsBySession;
       const { [sessionId]: __active, ...restActiveTurns } = state.activeTurnsBySession;
       const { [sessionId]: __clock, ...restExecutionClocks } = state.executionClockBySession;
+      const { [sessionId]: __pipeline, ...restPresentationPipelines } =
+        state.presentationPipelineBySession;
       const { [sessionId]: __traces, ...restTraces } = state.traceStepsBySession;
       const { [sessionId]: __ctx, ...restContextWindows } = state.contextWindowBySession;
       return {
@@ -273,6 +281,7 @@ export const useAppStore = create<AppState>((set) => ({
         pendingTurnsBySession: restPendingTurns,
         activeTurnsBySession: restActiveTurns,
         executionClockBySession: restExecutionClocks,
+        presentationPipelineBySession: restPresentationPipelines,
         traceStepsBySession: restTraces,
         contextWindowBySession: restContextWindows,
         activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
@@ -288,6 +297,7 @@ export const useAppStore = create<AppState>((set) => ({
       const newPendingTurns: Record<string, string[]> = {};
       const newActiveTurns: Record<string, { stepId: string; userMessageId: string } | null> = {};
       const newExecutionClocks: Record<string, SessionExecutionClock> = {};
+      const newPresentationPipelines: Record<string, PresentationPipeline> = {};
       const newTraces: Record<string, TraceStep[]> = {};
       const newContextWindows: Record<string, number> = {};
 
@@ -309,6 +319,9 @@ export const useAppStore = create<AppState>((set) => ({
       for (const key of Object.keys(state.executionClockBySession)) {
         if (!idSet.has(key)) newExecutionClocks[key] = state.executionClockBySession[key];
       }
+      for (const key of Object.keys(state.presentationPipelineBySession)) {
+        if (!idSet.has(key)) newPresentationPipelines[key] = state.presentationPipelineBySession[key];
+      }
       for (const key of Object.keys(state.traceStepsBySession)) {
         if (!idSet.has(key)) newTraces[key] = state.traceStepsBySession[key];
       }
@@ -324,6 +337,7 @@ export const useAppStore = create<AppState>((set) => ({
         pendingTurnsBySession: newPendingTurns,
         activeTurnsBySession: newActiveTurns,
         executionClockBySession: newExecutionClocks,
+        presentationPipelineBySession: newPresentationPipelines,
         traceStepsBySession: newTraces,
         contextWindowBySession: newContextWindows,
         activeSessionId:
@@ -334,6 +348,20 @@ export const useAppStore = create<AppState>((set) => ({
     }),
 
   setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
+
+  setPresentationPipeline: (sessionId, pipeline) =>
+    set((state) => ({
+      presentationPipelineBySession: {
+        ...state.presentationPipelineBySession,
+        [sessionId]: pipeline,
+      },
+    })),
+
+  clearPresentationPipeline: (sessionId) =>
+    set((state) => {
+      const { [sessionId]: _, ...rest } = state.presentationPipelineBySession;
+      return { presentationPipelineBySession: rest };
+    }),
 
   // Message actions
   addMessage: (sessionId, message) =>

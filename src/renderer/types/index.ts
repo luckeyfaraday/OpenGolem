@@ -341,6 +341,14 @@ export interface PermissionRule {
 }
 
 export type StreamingBehavior = 'steer' | 'followUp';
+export type PresentationPipeline = 'agent' | 'notebooklm';
+
+export interface NotebookLMStatus {
+  available: boolean;
+  authenticated: boolean;
+  command: string;
+  message?: string;
+}
 
 // IPC Event types
 export type ClientEvent =

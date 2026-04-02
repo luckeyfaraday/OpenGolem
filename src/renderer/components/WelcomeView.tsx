@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import { SlashCommandMenu } from './SlashCommandMenu';
-import type { ContentBlock } from '../types';
+import { PresentationPipelineDialog } from './PresentationPipelineDialog';
+import type { ContentBlock, PresentationPipeline } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
 import {
   buildSlashCommandHelpText,
@@ -18,6 +19,10 @@ import {
   isKnownSlashCommand,
   parseSlashCommand,
 } from '../utils/slash-commands';
+import {
+  buildNotebookLMMissingCliText,
+  isPresentationPipelineCandidate,
+} from '../utils/presentation-pipeline';
 import {
   FileText,
   BarChart3,
@@ -45,6 +50,10 @@ export function WelcomeView() {
   const [prompt, setPrompt] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPipelineDialog, setShowPipelineDialog] = useState(false);
+  const [pipelinePromptPreview, setPipelinePromptPreview] = useState('');
+  const [preferredPresentationPipeline, setPreferredPresentationPipeline] =
+    useState<PresentationPipeline | null>(null);
   const [selectedSlashCommandIndex, setSelectedSlashCommandIndex] = useState(0);
   const isComposingRef = useRef(false);
   const [pastedImages, setPastedImages] = useState<
@@ -334,25 +343,35 @@ export function WelcomeView() {
     )
       return;
 
-    setIsSubmitting(true);
-    try {
-      const clearComposer = () => {
-        setPrompt('');
-        if (textareaRef.current) {
-          textareaRef.current.value = '';
-        }
-        pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
-        setPastedImages([]);
-        setAttachedFiles([]);
-      };
+    const clearComposer = () => {
+      setPrompt('');
+      if (textareaRef.current) {
+        textareaRef.current.value = '';
+      }
+      pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
+      setPastedImages([]);
+      setAttachedFiles([]);
+    };
 
-      const pushNotice = (message: string, type: 'info' | 'warning' | 'error' | 'success' = 'info') => {
-        setGlobalNotice({
-          id: `notice-slash-${Date.now()}`,
-          type,
-          message,
-        });
-      };
+    const pushNotice = (message: string, type: 'info' | 'warning' | 'error' | 'success' = 'info') => {
+      setGlobalNotice({
+        id: `notice-slash-${Date.now()}`,
+        type,
+        message,
+      });
+    };
+
+    const submitWithPipeline = async (pipeline: PresentationPipeline | null) => {
+      const effectivePipeline =
+        pipeline || (isPresentationPipelineCandidate(trimmedPrompt) ? preferredPresentationPipeline : null);
+      if (!pipeline && trimmedPrompt && isPresentationPipelineCandidate(trimmedPrompt) && !effectivePipeline) {
+        setPipelinePromptPreview(trimmedPrompt);
+        setShowPipelineDialog(true);
+        return;
+      }
+
+      setIsSubmitting(true);
+      try {
 
       const slashCommand = parseSlashCommand(trimmedPrompt);
       if (slashCommand) {
@@ -437,6 +456,44 @@ export function WelcomeView() {
         }
       }
 
+        if (pipeline === 'notebooklm' || effectivePipeline === 'notebooklm') {
+          if (!window.electronAPI?.notebooklm) {
+            pushNotice('NotebookLM integration is only available in the desktop app.', 'error');
+            return;
+          }
+
+          if (pipeline) {
+            setPreferredPresentationPipeline(pipeline);
+          }
+
+          const status = await window.electronAPI.notebooklm.checkStatus();
+          if (!status.available) {
+            pushNotice(buildNotebookLMMissingCliText(status.command), 'error');
+            return;
+          }
+
+          let loginStarted = false;
+          if (!status.authenticated) {
+            const loginResult = await window.electronAPI.notebooklm.startLogin();
+            loginStarted = loginResult.started;
+          }
+
+          const opened = await window.electronAPI.notebooklm.openWebApp();
+          pushNotice(
+            opened
+              ? loginStarted
+                ? 'NotebookLM sign-in started and NotebookLM was opened in your browser. Your prompt is still in the composer so you can paste it there.'
+                : 'NotebookLM was opened in your browser. Your prompt is still in the composer so you can paste it there.'
+              : 'NotebookLM handoff is ready, but opening the browser failed. Your prompt is still in the composer.',
+            opened ? 'success' : 'warning'
+          );
+          return;
+        }
+
+        if (pipeline) {
+          setPreferredPresentationPipeline(pipeline);
+        }
+
       // Build content blocks
       const contentBlocks: ContentBlock[] = [];
 
@@ -474,6 +531,102 @@ export function WelcomeView() {
       if (session) {
         clearComposer();
       }
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
+    await submitWithPipeline(null);
+  };
+
+  const handlePipelineSelection = async (pipeline: PresentationPipeline) => {
+    setShowPipelineDialog(false);
+    setPipelinePromptPreview('');
+    const currentPrompt = textareaRef.current?.value || prompt;
+    const trimmedPrompt = currentPrompt.trim();
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    const contentBlocks: ContentBlock[] = [];
+    pastedImages.forEach((img) => {
+      contentBlocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: img.mediaType as any,
+          data: img.base64,
+        },
+      });
+    });
+    attachedFiles.forEach((file) => {
+      contentBlocks.push({
+        type: 'file_attachment',
+        filename: file.name,
+        relativePath: file.path,
+        size: file.size,
+        mimeType: file.type,
+        inlineDataBase64: file.inlineDataBase64,
+      });
+    });
+    contentBlocks.push({
+      type: 'text',
+      text: trimmedPrompt,
+    });
+
+    setIsSubmitting(true);
+    try {
+      setPreferredPresentationPipeline(pipeline);
+      if (pipeline === 'agent') {
+        const sessionTitle = getInitialSessionTitle(currentPrompt, attachedFiles[0]?.name);
+        const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined);
+        if (session) {
+          setPrompt('');
+          if (textareaRef.current) {
+            textareaRef.current.value = '';
+          }
+          pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
+          setPastedImages([]);
+          setAttachedFiles([]);
+        }
+        return;
+      }
+
+      if (!window.electronAPI?.notebooklm) {
+        setGlobalNotice({
+          id: `notice-notebooklm-${Date.now()}`,
+          type: 'error',
+          message: 'NotebookLM integration is only available in the desktop app.',
+        });
+        return;
+      }
+
+      const status = await window.electronAPI.notebooklm.checkStatus();
+      if (!status.available) {
+        setGlobalNotice({
+          id: `notice-notebooklm-${Date.now()}`,
+          type: 'error',
+          message: buildNotebookLMMissingCliText(status.command),
+        });
+        return;
+      }
+
+      let loginStarted = false;
+      if (!status.authenticated) {
+        const loginResult = await window.electronAPI.notebooklm.startLogin();
+        loginStarted = loginResult.started;
+      }
+
+      const opened = await window.electronAPI.notebooklm.openWebApp();
+      setGlobalNotice({
+        id: `notice-notebooklm-${Date.now()}`,
+        type: opened ? 'success' : 'warning',
+        message: opened
+          ? loginStarted
+            ? 'NotebookLM sign-in started and NotebookLM was opened in your browser. Your prompt is still in the composer so you can paste it there.'
+            : 'NotebookLM was opened in your browser. Your prompt is still in the composer so you can paste it there.'
+          : 'NotebookLM handoff is ready, but opening the browser failed. Your prompt is still in the composer.',
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -801,6 +954,15 @@ export function WelcomeView() {
           </div>
         </form>
       </div>
+      <PresentationPipelineDialog
+        open={showPipelineDialog}
+        promptPreview={pipelinePromptPreview}
+        onSelect={handlePipelineSelection}
+        onCancel={() => {
+          setShowPipelineDialog(false);
+          setPipelinePromptPreview('');
+        }}
+      />
     </div>
   );
 }

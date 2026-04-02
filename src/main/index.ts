@@ -85,6 +85,7 @@ import {
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
+import { notebookLMService } from './integrations/notebooklm-service';
 import {
   clearOAuthCredentials,
   getAllOAuthProviderStatuses,
@@ -1120,6 +1121,18 @@ ipcMain.handle('system.getTheme', () => {
     logError('[IPC] Error getting theme:', error);
     return { shouldUseDarkColors: true };
   }
+});
+
+ipcMain.handle('notebooklm.status', async () => {
+  return notebookLMService.checkStatus();
+});
+
+ipcMain.handle('notebooklm.login', async () => {
+  return notebookLMService.startLogin();
+});
+
+ipcMain.handle('notebooklm.openWebApp', async () => {
+  return notebookLMService.openWebApp();
 });
 
 ipcMain.handle('shell.openExternal', async (_event, url: string) => {

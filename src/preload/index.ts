@@ -22,6 +22,7 @@ import type {
   ProjectTask,
   ProjectTaskCreateInput,
   ProjectTaskUpdateInput,
+  NotebookLMStatus,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
 
@@ -363,6 +364,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteRule: (rule: { tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }): Promise<Array<{ tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }>> =>
       ipcRenderer.invoke('permissions.deleteRule', rule),
   },
+
+  notebooklm: {
+    checkStatus: (): Promise<NotebookLMStatus> => ipcRenderer.invoke('notebooklm.status'),
+    startLogin: (): Promise<{ started: boolean; message?: string }> => ipcRenderer.invoke('notebooklm.login'),
+    openWebApp: (): Promise<boolean> => ipcRenderer.invoke('notebooklm.openWebApp'),
+  },
 });
 
 // Type declaration for the renderer process
@@ -567,6 +574,11 @@ declare global {
       permissions: {
         listRules: () => Promise<Array<{ tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }>>;
         deleteRule: (rule: { tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }) => Promise<Array<{ tool: string; pattern?: string; action: 'allow' | 'deny' | 'ask' }>>;
+      };
+      notebooklm: {
+        checkStatus: () => Promise<NotebookLMStatus>;
+        startLogin: () => Promise<{ started: boolean; message?: string }>;
+        openWebApp: () => Promise<boolean>;
       };
     };
   }
