@@ -4,6 +4,7 @@ import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import { MessageCard } from './MessageCard';
 import { SlashCommandMenu } from './SlashCommandMenu';
+import { PresentationBriefDialog } from './PresentationBriefDialog';
 import { PresentationPipelineDialog } from './PresentationPipelineDialog';
 import type { Message, ContentBlock, PresentationPipeline } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
@@ -22,7 +23,10 @@ import {
 } from '../utils/slash-commands';
 import {
   buildNotebookLMHandoffText,
+  buildPresentationBrief,
+  getDefaultPresentationBriefDraft,
   isPresentationPipelineCandidate,
+  isUnderSpecifiedPresentationPrompt,
 } from '../utils/presentation-pipeline';
 import { Send, Square, Plus, Loader2, Plug, X, Clock } from 'lucide-react';
 
@@ -56,6 +60,8 @@ export function ChatView() {
   const { continueSession, startSession, stopSession, addMemory, searchMemory, listMemory, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showBriefDialog, setShowBriefDialog] = useState(false);
+  const [briefPromptSeed, setBriefPromptSeed] = useState('');
   const [showPipelineDialog, setShowPipelineDialog] = useState(false);
   const [pipelinePromptPreview, setPipelinePromptPreview] = useState('');
   const [selectedSlashCommandIndex, setSelectedSlashCommandIndex] = useState(0);
@@ -94,6 +100,10 @@ export function ChatView() {
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
   const slashSuggestions = useMemo(() => getSlashCommandSuggestions(prompt), [prompt]);
+  const initialBriefDraft = useMemo(
+    () => getDefaultPresentationBriefDraft(briefPromptSeed),
+    [briefPromptSeed]
+  );
   const rememberedPresentationPipeline = activeSessionId
     ? presentationPipelineBySession[activeSessionId] || null
     : null;
@@ -571,455 +581,329 @@ export function ChatView() {
     return () => observer.disconnect();
   }, [activeSession?.title, activeConnectors.length]);
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
+  const clearComposer = useCallback(() => {
+    setPrompt('');
+    if (textareaRef.current) {
+      textareaRef.current.value = '';
+    }
+    pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
+    setPastedImages([]);
+    setAttachedFiles([]);
+  }, [pastedImages]);
 
-    // Get value from ref to handle both controlled and uncontrolled cases
-    const currentPrompt = textareaRef.current?.value || prompt;
-    const trimmedPrompt = currentPrompt.trim();
+  const pushLocalCommandMessage = useCallback((text: string) => {
+    if (!activeSessionId) return;
+    addMessage(activeSessionId, {
+      id: `slash-${Date.now()}`,
+      sessionId: activeSessionId,
+      role: 'system',
+      content: [{ type: 'text', text }],
+      timestamp: Date.now(),
+    });
+  }, [activeSessionId, addMessage]);
 
-    if (
-      (!trimmedPrompt && pastedImages.length === 0 && attachedFiles.length === 0) ||
-      !activeSessionId ||
-      isSubmitting
-    )
-      return;
+  const buildContentBlocks = useCallback((trimmedPrompt: string): ContentBlock[] => {
+    const contentBlocks: ContentBlock[] = [];
 
-    const clearComposer = () => {
-      setPrompt('');
-      if (textareaRef.current) {
-        textareaRef.current.value = '';
-      }
-      pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
-      setPastedImages([]);
-      setAttachedFiles([]);
-    };
-
-    const pushLocalCommandMessage = (text: string) => {
-      addMessage(activeSessionId, {
-        id: `slash-${Date.now()}`,
-        sessionId: activeSessionId,
-        role: 'system',
-        content: [{ type: 'text', text }],
-        timestamp: Date.now(),
+    pastedImages.forEach((img) => {
+      contentBlocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: img.mediaType as any,
+          data: img.base64,
+        },
       });
-    };
+    });
 
-    const buildContentBlocks = (): ContentBlock[] => {
-      const contentBlocks: ContentBlock[] = [];
-
-      pastedImages.forEach((img) => {
-        contentBlocks.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: img.mediaType as any,
-            data: img.base64,
-          },
-        });
+    attachedFiles.forEach((file) => {
+      contentBlocks.push({
+        type: 'file_attachment',
+        filename: file.name,
+        relativePath: file.path,
+        size: file.size,
+        mimeType: file.type,
+        inlineDataBase64: file.inlineDataBase64,
       });
+    });
 
-      attachedFiles.forEach((file) => {
-        contentBlocks.push({
-          type: 'file_attachment',
-          filename: file.name,
-          relativePath: file.path,
-          size: file.size,
-          mimeType: file.type,
-          inlineDataBase64: file.inlineDataBase64,
-        });
-      });
+    if (trimmedPrompt) {
+      contentBlocks.push({ type: 'text', text: trimmedPrompt });
+    }
 
-      if (trimmedPrompt) {
-        contentBlocks.push({
-          type: 'text',
-          text: trimmedPrompt,
-        });
-      }
+    return contentBlocks;
+  }, [attachedFiles, pastedImages]);
 
-      return contentBlocks;
-    };
-
-    const handoffToNotebookLM = async (contentBlocks: ContentBlock[]) => {
-      if (!window.electronAPI?.notebooklm) {
-        setGlobalNotice({
-          id: `notice-notebooklm-${Date.now()}`,
-          type: 'error',
-          message: 'NotebookLM integration is only available in the desktop app.',
-        });
-        return;
-      }
-
-      const sourcePaths = attachedFiles
-        .map((file) => file.path?.trim() || '')
-        .filter((filePath) => filePath.length > 0);
-      const localSkippedSources =
-        pastedImages.length + attachedFiles.filter((file) => !(file.path && file.path.trim())).length;
-
-      const preparation = await window.electronAPI.notebooklm.preparePresentationDeck({
-        title: activeSession?.title || getInitialSessionTitle(trimmedPrompt),
-        prompt: trimmedPrompt,
-        sourcePaths,
-      });
-
-      if (preparation.status === 'unavailable') {
-        setGlobalNotice({
-          id: `notice-notebooklm-${Date.now()}`,
-          type: 'error',
-          message: preparation.message,
-        });
-        return;
-      }
-
-      if (preparation.status === 'requires_login') {
-        const loginResult = await window.electronAPI.notebooklm.startLogin();
-        const opened = await window.electronAPI.notebooklm.openWebApp();
-        setGlobalNotice({
-          id: `notice-notebooklm-${Date.now()}`,
-          type: opened ? 'warning' : 'error',
-          message: loginResult.started
-            ? 'NotebookLM sign-in started. Finish authentication in the browser, then resend this presentation request.'
-            : 'NotebookLM authentication is required before sources can be uploaded.',
-        });
-        return;
-      }
-
-      if (preparation.status === 'error') {
-        setGlobalNotice({
-          id: `notice-notebooklm-${Date.now()}`,
-          type: 'error',
-          message: preparation.message,
-        });
-        return;
-      }
-
-      const opened = await window.electronAPI.notebooklm.openWebApp();
-      const assistantMessage: Message = {
-        id: `notebooklm-assistant-${Date.now()}`,
-        sessionId: activeSessionId,
-        role: 'assistant',
-        content: [
-          {
-            type: 'text',
-            text: buildNotebookLMHandoffText(trimmedPrompt, {
-              notebookTitle: preparation.notebookTitle,
-              notebookId: preparation.notebookId,
-              importedSources: preparation.importedSources,
-              skippedSources: preparation.skippedSources + localSkippedSources,
-            }),
-          },
-        ],
-        timestamp: Date.now(),
-      };
-      const userMessage: Message = {
-        id: `notebooklm-user-${Date.now()}`,
-        sessionId: activeSessionId,
-        role: 'user',
-        content: contentBlocks,
-        timestamp: Date.now(),
-      };
-      setMessages(activeSessionId, [...messages, userMessage, assistantMessage]);
-      clearComposer();
+  const handoffToNotebookLM = useCallback(async (trimmedPrompt: string, contentBlocks: ContentBlock[]) => {
+    if (!activeSessionId) return;
+    if (!window.electronAPI?.notebooklm) {
       setGlobalNotice({
         id: `notice-notebooklm-${Date.now()}`,
-        type: opened ? 'success' : 'warning',
-        message: opened
-          ? 'NotebookLM notebook prepared and opened in your browser.'
-          : 'NotebookLM notebook was prepared, but opening the browser failed.',
+        type: 'error',
+        message: 'NotebookLM integration is only available in the desktop app.',
       });
+      return;
+    }
+
+    const sourcePaths = attachedFiles
+      .map((file) => file.path?.trim() || '')
+      .filter((filePath) => filePath.length > 0);
+    const localSkippedSources =
+      pastedImages.length + attachedFiles.filter((file) => !(file.path && file.path.trim())).length;
+
+    const preparation = await window.electronAPI.notebooklm.preparePresentationDeck({
+      title: activeSession?.title || getInitialSessionTitle(trimmedPrompt),
+      prompt: trimmedPrompt,
+      sourcePaths,
+    });
+
+    if (preparation.status === 'unavailable') {
+      setGlobalNotice({
+        id: `notice-notebooklm-${Date.now()}`,
+        type: 'error',
+        message: preparation.message,
+      });
+      return;
+    }
+
+    if (preparation.status === 'requires_login') {
+      const loginResult = await window.electronAPI.notebooklm.startLogin();
+      const opened = await window.electronAPI.notebooklm.openWebApp();
+      setGlobalNotice({
+        id: `notice-notebooklm-${Date.now()}`,
+        type: opened ? 'warning' : 'error',
+        message: loginResult.started
+          ? 'NotebookLM sign-in started. Finish authentication in the browser, then resend this presentation request.'
+          : 'NotebookLM authentication is required before sources can be uploaded.',
+      });
+      return;
+    }
+
+    if (preparation.status === 'error') {
+      setGlobalNotice({
+        id: `notice-notebooklm-${Date.now()}`,
+        type: 'error',
+        message: preparation.message,
+      });
+      return;
+    }
+
+    const opened = await window.electronAPI.notebooklm.openWebApp();
+    const assistantMessage: Message = {
+      id: `notebooklm-assistant-${Date.now()}`,
+      sessionId: activeSessionId,
+      role: 'assistant',
+      content: [{
+        type: 'text',
+        text: buildNotebookLMHandoffText(trimmedPrompt, {
+          notebookTitle: preparation.notebookTitle,
+          notebookId: preparation.notebookId,
+          importedSources: preparation.importedSources,
+          skippedSources: preparation.skippedSources + localSkippedSources,
+        }),
+      }],
+      timestamp: Date.now(),
     };
+    const userMessage: Message = {
+      id: `notebooklm-user-${Date.now()}`,
+      sessionId: activeSessionId,
+      role: 'user',
+      content: contentBlocks,
+      timestamp: Date.now(),
+    };
+    setMessages(activeSessionId, [...messages, userMessage, assistantMessage]);
+    clearComposer();
+    setGlobalNotice({
+      id: `notice-notebooklm-${Date.now()}`,
+      type: opened ? 'success' : 'warning',
+      message: opened
+        ? 'NotebookLM notebook prepared and opened in your browser.'
+        : 'NotebookLM notebook was prepared, but opening the browser failed.',
+    });
+  }, [activeSession, activeSessionId, attachedFiles, clearComposer, messages, pastedImages.length, setGlobalNotice, setMessages]);
 
-    const submitWithPipeline = async (pipeline: PresentationPipeline | null) => {
-      setIsSubmitting(true);
-      try {
-        const effectivePipeline =
-          pipeline || (isPresentationPipelineCandidate(trimmedPrompt)
-            ? rememberedPresentationPipeline
-            : null);
+  const submitPrompt = useCallback(async (
+    promptText: string,
+    pipeline: PresentationPipeline | null = null,
+    options?: { bypassBrief?: boolean }
+  ) => {
+    if (!activeSessionId) return;
+    const trimmedPrompt = promptText.trim();
 
-        if (!pipeline && trimmedPrompt && isPresentationPipelineCandidate(trimmedPrompt) && !effectivePipeline) {
-          setPipelinePromptPreview(trimmedPrompt);
-          setShowPipelineDialog(true);
+    if ((!trimmedPrompt && pastedImages.length === 0 && attachedFiles.length === 0) || isSubmitting) {
+      return;
+    }
+
+    const slashCommand = parseSlashCommand(trimmedPrompt);
+    if (slashCommand) {
+      if (pastedImages.length > 0 || attachedFiles.length > 0) {
+        setGlobalNotice({
+          id: `notice-slash-attachments-${Date.now()}`,
+          type: 'warning',
+          message: 'Slash commands do not support attachments yet.',
+        });
+        return;
+      }
+
+      if (!isKnownSlashCommand(slashCommand.name)) {
+        pushLocalCommandMessage(buildUnknownSlashCommandText(slashCommand.name));
+        clearComposer();
+        return;
+      }
+
+      switch (slashCommand.name) {
+        case 'help':
+          pushLocalCommandMessage(buildSlashCommandHelpText());
+          clearComposer();
           return;
-        }
-
-      const slashCommand = parseSlashCommand(trimmedPrompt);
-      if (slashCommand) {
-        if (pastedImages.length > 0 || attachedFiles.length > 0) {
-          setGlobalNotice({
-            id: `notice-slash-attachments-${Date.now()}`,
-            type: 'warning',
-            message: 'Slash commands do not support attachments yet.',
-          });
-          return;
-        }
-
-        if (!isKnownSlashCommand(slashCommand.name)) {
-          pushLocalCommandMessage(buildUnknownSlashCommandText(slashCommand.name));
+        case 'memory': {
+          const memoryCommand = parseMemoryCommandArgs(slashCommand.args);
+          if (memoryCommand.kind === 'help') {
+            pushLocalCommandMessage(buildSlashCommandMemoryHelpText());
+            clearComposer();
+            return;
+          }
+          if (memoryCommand.kind === 'invalid') {
+            pushLocalCommandMessage(memoryCommand.message);
+            clearComposer();
+            return;
+          }
+          if (memoryCommand.kind === 'add') {
+            const entry = await addMemory(activeSessionId, memoryCommand.content);
+            pushLocalCommandMessage(
+              entry
+                ? `Saved memory for ${entry.metadata.sessionTitle || activeSession?.title || 'this chat'}.`
+                : 'Failed to save memory.'
+            );
+            clearComposer();
+            return;
+          }
+          if (memoryCommand.kind === 'search') {
+            const entries = await searchMemory(memoryCommand.query, memoryCommand.limit);
+            pushLocalCommandMessage(buildSlashCommandMemoryText(entries, `Memory search: ${memoryCommand.query}`));
+            clearComposer();
+            return;
+          }
+          const entries = await listMemory(memoryCommand.limit);
+          pushLocalCommandMessage(buildSlashCommandMemoryText(entries, 'Recent memories:'));
           clearComposer();
           return;
         }
-
-        switch (slashCommand.name) {
-          case 'help':
-            pushLocalCommandMessage(buildSlashCommandHelpText());
-            clearComposer();
-            return;
-          case 'memory': {
-            const memoryCommand = parseMemoryCommandArgs(slashCommand.args);
-            if (memoryCommand.kind === 'help') {
-              pushLocalCommandMessage(buildSlashCommandMemoryHelpText());
-              clearComposer();
-              return;
-            }
-            if (memoryCommand.kind === 'invalid') {
-              pushLocalCommandMessage(memoryCommand.message);
-              clearComposer();
-              return;
-            }
-            if (memoryCommand.kind === 'add') {
-              const entry = await addMemory(activeSessionId, memoryCommand.content);
-              pushLocalCommandMessage(
-                entry
-                  ? `Saved memory for ${entry.metadata.sessionTitle || activeSession?.title || 'this chat'}.`
-                  : 'Failed to save memory.'
-              );
-              clearComposer();
-              return;
-            }
-            if (memoryCommand.kind === 'search') {
-              const entries = await searchMemory(memoryCommand.query, memoryCommand.limit);
-              pushLocalCommandMessage(
-                buildSlashCommandMemoryText(entries, `Memory search: ${memoryCommand.query}`)
-              );
-              clearComposer();
-              return;
-            }
-            const entries = await listMemory(memoryCommand.limit);
-            pushLocalCommandMessage(buildSlashCommandMemoryText(entries, 'Recent memories:'));
-            clearComposer();
-            return;
-          }
-          case 'where':
-            pushLocalCommandMessage(
-              buildSlashCommandWhereText({
-                session: activeSession,
-                workingDir,
-                model: appConfig?.model || null,
-              })
-            );
-            clearComposer();
-            return;
-          case 'usage':
-            pushLocalCommandMessage(buildSlashCommandUsageText(messages));
-            clearComposer();
-            return;
-          case 'new':
-            clearComposer();
-            if (!slashCommand.args) {
-              setActiveSession(null);
-              setShowSettings(false);
-              return;
-            }
-            await startSession(
-              getInitialSessionTitle(slashCommand.args),
-              slashCommand.args,
-              activeSession?.cwd || workingDir || undefined
-            );
-            return;
-          case 'review':
-            await continueSession(activeSessionId, buildSlashCommandReviewPrompt(slashCommand.args));
-            clearComposer();
-            return;
-        }
-      }
-
-        const contentBlocks = buildContentBlocks();
-
-        if (pipeline === 'notebooklm' || effectivePipeline === 'notebooklm') {
-          if (pipeline && activeSessionId) {
-            setPresentationPipeline(activeSessionId, pipeline);
-          }
-          await handoffToNotebookLM(contentBlocks);
+        case 'where':
+          pushLocalCommandMessage(
+            buildSlashCommandWhereText({
+              session: activeSession,
+              workingDir,
+              model: appConfig?.model || null,
+            })
+          );
+          clearComposer();
           return;
-        }
-
-        if (pipeline && activeSessionId) {
-          setPresentationPipeline(activeSessionId, pipeline);
-        }
-
-        await continueSession(activeSessionId, contentBlocks);
-        clearComposer();
-      } finally {
-        setIsSubmitting(false);
+        case 'usage':
+          pushLocalCommandMessage(buildSlashCommandUsageText(messages));
+          clearComposer();
+          return;
+        case 'new':
+          clearComposer();
+          if (!slashCommand.args) {
+            setActiveSession(null);
+            setShowSettings(false);
+            return;
+          }
+          await startSession(
+            getInitialSessionTitle(slashCommand.args),
+            slashCommand.args,
+            activeSession?.cwd || workingDir || undefined
+          );
+          return;
+        case 'review':
+          await continueSession(activeSessionId, buildSlashCommandReviewPrompt(slashCommand.args));
+          clearComposer();
+          return;
       }
-    };
+    }
 
-    await submitWithPipeline(null);
-  };
+    if (!options?.bypassBrief && isUnderSpecifiedPresentationPrompt(trimmedPrompt)) {
+      setBriefPromptSeed(trimmedPrompt);
+      setShowBriefDialog(true);
+      return;
+    }
 
-  const handlePipelineSelection = useCallback(
-    async (pipeline: PresentationPipeline) => {
-      if (!activeSessionId) {
+    const effectivePipeline =
+      pipeline || (isPresentationPipelineCandidate(trimmedPrompt) ? rememberedPresentationPipeline : null);
+    if (!pipeline && trimmedPrompt && isPresentationPipelineCandidate(trimmedPrompt) && !effectivePipeline) {
+      setPipelinePromptPreview(trimmedPrompt);
+      setShowPipelineDialog(true);
+      return;
+    }
+
+    const contentBlocks = buildContentBlocks(trimmedPrompt);
+
+    setIsSubmitting(true);
+    try {
+      if (pipeline) {
+        setPresentationPipeline(activeSessionId, pipeline);
+      }
+      if (pipeline === 'notebooklm' || effectivePipeline === 'notebooklm') {
+        await handoffToNotebookLM(trimmedPrompt, contentBlocks);
         return;
       }
-      setShowPipelineDialog(false);
-      setPipelinePromptPreview('');
-      await (async () => {
-        const currentPrompt = textareaRef.current?.value || prompt;
-        const trimmedPrompt = currentPrompt.trim();
-        if (!trimmedPrompt) {
-          return;
-        }
-        const contentBlocks: ContentBlock[] = [];
-        pastedImages.forEach((img) => {
-          contentBlocks.push({
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: img.mediaType as any,
-              data: img.base64,
-            },
-          });
-        });
-        attachedFiles.forEach((file) => {
-          contentBlocks.push({
-            type: 'file_attachment',
-            filename: file.name,
-            relativePath: file.path,
-            size: file.size,
-            mimeType: file.type,
-            inlineDataBase64: file.inlineDataBase64,
-          });
-        });
-        if (trimmedPrompt) {
-          contentBlocks.push({ type: 'text', text: trimmedPrompt });
-        }
+      await continueSession(activeSessionId, contentBlocks);
+      clearComposer();
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [
+    activeSession,
+    activeSessionId,
+    addMemory,
+    appConfig?.model,
+    attachedFiles,
+    buildContentBlocks,
+    clearComposer,
+    continueSession,
+    handoffToNotebookLM,
+    isSubmitting,
+    listMemory,
+    messages,
+    pastedImages.length,
+    pushLocalCommandMessage,
+    rememberedPresentationPipeline,
+    searchMemory,
+    setGlobalNotice,
+    setPresentationPipeline,
+    setShowSettings,
+    startSession,
+    workingDir,
+  ]);
 
-        setIsSubmitting(true);
-        try {
-          setPresentationPipeline(activeSessionId, pipeline);
-          if (pipeline === 'notebooklm') {
-            if (!window.electronAPI?.notebooklm) {
-              setGlobalNotice({
-                id: `notice-notebooklm-${Date.now()}`,
-                type: 'error',
-                message: 'NotebookLM integration is only available in the desktop app.',
-              });
-              return;
-            }
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    await submitPrompt(textareaRef.current?.value || prompt);
+  };
 
-            const sourcePaths = attachedFiles
-              .map((file) => file.path?.trim() || '')
-              .filter((filePath) => filePath.length > 0);
-            const localSkippedSources =
-              pastedImages.length + attachedFiles.filter((file) => !(file.path && file.path.trim())).length;
+  const handlePipelineSelection = useCallback(async (pipeline: PresentationPipeline) => {
+    setShowPipelineDialog(false);
+    const nextPrompt = pipelinePromptPreview || textareaRef.current?.value || prompt;
+    setPipelinePromptPreview('');
+    await submitPrompt(nextPrompt, pipeline, { bypassBrief: true });
+  }, [pipelinePromptPreview, prompt, submitPrompt]);
 
-            const preparation = await window.electronAPI.notebooklm.preparePresentationDeck({
-              title: activeSession?.title || getInitialSessionTitle(trimmedPrompt),
-              prompt: trimmedPrompt,
-              sourcePaths,
-            });
-
-            if (preparation.status === 'unavailable') {
-              setGlobalNotice({
-                id: `notice-notebooklm-${Date.now()}`,
-                type: 'error',
-                message: preparation.message,
-              });
-              return;
-            }
-
-            if (preparation.status === 'requires_login') {
-              const loginResult = await window.electronAPI.notebooklm.startLogin();
-              const opened = await window.electronAPI.notebooklm.openWebApp();
-              setGlobalNotice({
-                id: `notice-notebooklm-${Date.now()}`,
-                type: opened ? 'warning' : 'error',
-                message: loginResult.started
-                  ? 'NotebookLM sign-in started. Finish authentication in the browser, then resend this presentation request.'
-                  : 'NotebookLM authentication is required before sources can be uploaded.',
-              });
-              return;
-            }
-
-            if (preparation.status === 'error') {
-              setGlobalNotice({
-                id: `notice-notebooklm-${Date.now()}`,
-                type: 'error',
-                message: preparation.message,
-              });
-              return;
-            }
-
-            const opened = await window.electronAPI.notebooklm.openWebApp();
-            const assistantMessage: Message = {
-              id: `notebooklm-assistant-${Date.now()}`,
-              sessionId: activeSessionId,
-              role: 'assistant',
-              content: [
-                {
-                  type: 'text',
-                  text: buildNotebookLMHandoffText(trimmedPrompt, {
-                    notebookTitle: preparation.notebookTitle,
-                    notebookId: preparation.notebookId,
-                    importedSources: preparation.importedSources,
-                    skippedSources: preparation.skippedSources + localSkippedSources,
-                  }),
-                },
-              ],
-              timestamp: Date.now(),
-            };
-            const userMessage: Message = {
-              id: `notebooklm-user-${Date.now()}`,
-              sessionId: activeSessionId,
-              role: 'user',
-              content: contentBlocks,
-              timestamp: Date.now(),
-            };
-            setMessages(activeSessionId, [...messages, userMessage, assistantMessage]);
-            setPrompt('');
-            if (textareaRef.current) {
-              textareaRef.current.value = '';
-            }
-            pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
-            setPastedImages([]);
-            setAttachedFiles([]);
-            setGlobalNotice({
-              id: `notice-notebooklm-${Date.now()}`,
-              type: opened ? 'success' : 'warning',
-              message: opened
-                ? 'NotebookLM notebook prepared and opened in your browser.'
-                : 'NotebookLM notebook was prepared, but opening the browser failed.',
-            });
-            return;
-          }
-
-          await continueSession(activeSessionId, contentBlocks);
-          setPrompt('');
-          if (textareaRef.current) {
-            textareaRef.current.value = '';
-          }
-          pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
-          setPastedImages([]);
-          setAttachedFiles([]);
-        } finally {
-          setIsSubmitting(false);
-        }
-      })();
-    },
-    [
-      activeSessionId,
-      attachedFiles,
-      continueSession,
-      messages,
-      pastedImages,
-      prompt,
-      setGlobalNotice,
-      setMessages,
-      setPresentationPipeline,
-    ]
-  );
+  const handleBriefConfirm = useCallback(async (draft: ReturnType<typeof getDefaultPresentationBriefDraft>) => {
+    const enhancedPrompt = buildPresentationBrief(briefPromptSeed, draft);
+    setShowBriefDialog(false);
+    setBriefPromptSeed('');
+    setPrompt(enhancedPrompt);
+    if (textareaRef.current) {
+      textareaRef.current.value = enhancedPrompt;
+    }
+    if (rememberedPresentationPipeline) {
+      await submitPrompt(enhancedPrompt, rememberedPresentationPipeline, { bypassBrief: true });
+      return;
+    }
+    setPipelinePromptPreview(enhancedPrompt);
+    setShowPipelineDialog(true);
+  }, [briefPromptSeed, rememberedPresentationPipeline, submitPrompt]);
 
   const applySlashCommand = useCallback((commandName: string) => {
     const nextValue = `/${commandName} `;
@@ -1315,6 +1199,16 @@ export function ChatView() {
         onCancel={() => {
           setShowPipelineDialog(false);
           setPipelinePromptPreview('');
+        }}
+      />
+      <PresentationBriefDialog
+        open={showBriefDialog}
+        promptPreview={briefPromptSeed}
+        initialDraft={initialBriefDraft}
+        onConfirm={handleBriefConfirm}
+        onCancel={() => {
+          setShowBriefDialog(false);
+          setBriefPromptSeed('');
         }}
       />
     </div>
