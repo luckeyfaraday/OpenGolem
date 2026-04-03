@@ -12,14 +12,21 @@ describe('presentation pipeline helpers', () => {
   it('detects deck-like prompts', () => {
     expect(isPresentationPipelineCandidate('Create a slide deck for the board meeting')).toBe(true);
     expect(isPresentationPipelineCandidate('Make me a PPTX about market structure')).toBe(true);
+    expect(isPresentationPipelineCandidate('Haz una presentación sobre nematodos')).toBe(true);
     expect(isPresentationPipelineCandidate('Summarize this repository')).toBe(false);
   });
 
   it('flags underspecified presentation prompts', () => {
     expect(isUnderSpecifiedPresentationPrompt('Make a presentation about nematodes')).toBe(true);
+    expect(isUnderSpecifiedPresentationPrompt('Haz una presentación sobre nematodos')).toBe(true);
     expect(
       isUnderSpecifiedPresentationPrompt(
         'Make a 12 slide educational presentation about nematodes for biology students'
+      )
+    ).toBe(false);
+    expect(
+      isUnderSpecifiedPresentationPrompt(
+        'Haz una presentación educativa de 12 diapositivas sobre nematodos para estudiantes de biología'
       )
     ).toBe(false);
   });
@@ -59,5 +66,13 @@ describe('presentation pipeline helpers', () => {
     expect(text).toContain('Audience: High school biology students');
     expect(text).toContain('Target length: 10 slides');
     expect(text).toContain('Speaker notes: Include speaker notes');
+  });
+
+  it('derives sensible defaults from Spanish prompts', () => {
+    const draft = getDefaultPresentationBriefDraft(
+      'Haz una presentación técnica para estudiantes sobre nematodos'
+    );
+    expect(draft.audience).toBe('Students');
+    expect(draft.tone).toBe('Technical');
   });
 });
