@@ -10,6 +10,56 @@ license: Proprietary. LICENSE.txt has complete terms
 
 Create, edit, or analyze the contents of .pptx files when requested. A .pptx file is essentially a ZIP archive containing XML files and other resources. Different tools and workflows are available for different tasks.
 
+## Preferred Path For Corporate Decks
+
+For a new branded presentation using the bundled OpenGolem corporate template, use:
+
+- template: `.claude/skills/pptx/templates/reference.pptx`
+- generator: `.claude/skills/pptx/scripts/generate_corporate_pptx.py`
+
+This is the preferred path when the user wants a polished internal or client-ready deck and does not provide their own PPTX template.
+
+Use layout-driven slide JSON with the following body slide types:
+
+- `section`
+- `bullets`
+- `two-column`
+- `quote`
+- `closing`
+
+The generator always creates the cover slide from the CLI metadata and then builds the remaining deck from the chosen template slides.
+
+Example:
+
+```bash
+python3 .claude/skills/pptx/scripts/generate_corporate_pptx.py \
+  --title "Nematodes: Executive Overview" \
+  --subtitle "Biology, risks, and agricultural impact" \
+  --date "April 2026" \
+  --classification "INTERNAL" \
+  --prepared-by "OpenGolem Research" \
+  --output output/nematodes_overview.pptx \
+  --slides-json '[
+    {"layout":"section","title":"Why Nematodes Matter","kicker":"Context"},
+    {"layout":"bullets","title":"Core Facts","bullets":["Nematodes are among the most abundant animals on earth","They occupy soil, marine, freshwater, and host-associated niches","A minority are major crop and health threats"],"footer":"Use one idea per bullet"},
+    {"layout":"two-column","title":"Helpful vs Harmful","left_title":"Beneficial roles","left_bullets":["Nutrient cycling","Soil food-web balance"],"right_title":"Major risks","right_bullets":["Plant parasitism","Livestock and human disease"]},
+    {"layout":"quote","quote":"Management depends on distinguishing harmless background populations from economically meaningful infestation.","attribution":"Suggested speaker emphasis"},
+    {"layout":"closing","title":"Recommended Next Step","bullets":["Define audience-specific storyline","Add visuals only where they clarify the science","Validate every slide visually before delivery"]}
+  ]'
+```
+
+Validation after generation:
+
+```bash
+python3 .claude/skills/pptx/scripts/thumbnail.py output/nematodes_overview.pptx output/nematodes_overview
+```
+
+Prerequisites for the Python-based template workflow:
+
+- `python-pptx`
+- `Pillow`
+- LibreOffice plus `pdftoppm` if you want thumbnail validation
+
 ## CRITICAL: Read All Documentation First
 
 **Before starting any presentation task**, read ALL relevant documentation files completely to understand the full workflow:
