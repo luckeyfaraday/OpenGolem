@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildNotebookLMConversationContext,
   buildNotebookLMHandoffText,
   buildPresentationBrief,
   buildNotebookLMMissingCliText,
@@ -7,6 +8,7 @@ import {
   isPresentationPipelineCandidate,
   isUnderSpecifiedPresentationPrompt,
 } from '../src/renderer/utils/presentation-pipeline';
+import type { Message } from '../src/renderer/types';
 
 describe('presentation pipeline helpers', () => {
   it('detects deck-like prompts', () => {
@@ -49,6 +51,31 @@ describe('presentation pipeline helpers', () => {
 
   it('builds a missing-cli message', () => {
     expect(buildNotebookLMMissingCliText('notebooklm')).toContain('`notebooklm`');
+  });
+
+  it('builds notebooklm conversation context from prior messages', () => {
+    const messages: Message[] = [
+      {
+        id: '1',
+        sessionId: 's1',
+        role: 'user',
+        content: [{ type: 'text', text: 'Research Colombia mining opportunities.' }],
+        timestamp: 1,
+      },
+      {
+        id: '2',
+        sessionId: 's1',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Here is a detailed sector summary with key agencies and regions.' }],
+        timestamp: 2,
+      },
+    ];
+
+    const context = buildNotebookLMConversationContext(messages);
+    expect(context).toContain('# Conversation Context');
+    expect(context).toContain('## User');
+    expect(context).toContain('## Assistant');
+    expect(context).toContain('Research Colombia mining opportunities.');
   });
 
   it('builds a structured presentation brief', () => {

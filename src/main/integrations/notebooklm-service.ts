@@ -1,6 +1,8 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { extname } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { extname, join } from 'node:path';
 import { shell } from 'electron';
 import type {
   NotebookLMStatus,
@@ -58,6 +60,27 @@ function buildCreateOutputMessage(error: unknown): string {
     ? (error as { stdout: string }).stdout.trim()
     : '';
   return stderr || stdout || (error instanceof Error ? error.message : 'NotebookLM command failed.');
+}
+
+function buildPresentationBriefMarkdown(prompt: string): string {
+  return [
+    '# Presentation Brief',
+    '',
+    prompt.trim(),
+    '',
+    'This brief was prepared by OpenGolem and uploaded automatically.',
+  ].join('\n');
+}
+
+function buildGenerationDescription(title: string, prompt: string): string {
+  const firstLine = prompt
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0) || title.trim();
+  const normalized = firstLine.replace(/\s+/g, ' ').trim();
+  return normalized.length > 220
+    ? `${normalized.slice(0, 219).trimEnd()}…`
+    : (normalized || 'Create a presentation based on the uploaded sources.');
 }
 
 export class NotebookLMService {
@@ -158,6 +181,7 @@ export class NotebookLMService {
     input: NotebookLMPresentationPreparationInput
   ): Promise<NotebookLMPresentationPreparationResult> {
     const notebookTitle = buildNotebookTitle(input.title);
+    let tempDir: string | null = null;
     const status = await this.checkStatus();
 
     if (!status.available) {
@@ -193,6 +217,20 @@ export class NotebookLMService {
 
       await this.runCommand(['use', notebookId], 30000);
 
+      tempDir = await mkdtemp(join(tmpdir(), 'opengolem-notebooklm-'));
+      const briefPath = join(tempDir, 'presentation-brief.md');
+      await writeFile(briefPath, buildPresentationBriefMarkdown(input.prompt), 'utf8');
+
+      const generatedSources: Array<{ path: string; title?: string }> = [
+        { path: briefPath, title: 'Presentation brief' },
+      ];
+
+      if (input.contextMarkdown?.trim()) {
+        const contextPath = join(tempDir, 'conversation-context.md');
+        await writeFile(contextPath, input.contextMarkdown.trim(), 'utf8');
+        generatedSources.push({ path: contextPath, title: 'Conversation context' });
+      }
+
       let importedSources = 0;
       let skippedSources = 0;
 
@@ -218,18 +256,21 @@ export class NotebookLMService {
         }
       }
 
-      try {
-        await this.runCommand(
-          ['source', 'add', input.prompt.trim(), '--notebook', notebookId, '--title', 'Presentation brief', '--json'],
-          120000
-        );
-        importedSources += 1;
-      } catch (error) {
-        logError('[NotebookLM] Failed to add prompt brief source:', error);
+      for (const source of generatedSources) {
+        try {
+          await this.runCommand(
+            ['source', 'add', source.path, '--notebook', notebookId, '--title', source.title || 'Generated source', '--json'],
+            120000
+          );
+          importedSources += 1;
+        } catch (error) {
+          logError('[NotebookLM] Failed to add generated source:', source.path, error);
+          skippedSources += 1;
+        }
       }
 
       await this.runCommand(
-        ['generate', 'slide-deck', input.prompt.trim(), '--notebook', notebookId, '--json', '--no-wait'],
+        ['generate', 'slide-deck', buildGenerationDescription(input.title, input.prompt), '--notebook', notebookId, '--json', '--no-wait'],
         60000
       );
 
@@ -252,6 +293,12 @@ export class NotebookLMService {
         generated: false,
         message: buildCreateOutputMessage(error),
       };
+    } finally {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true }).catch((cleanupError) => {
+          logError('[NotebookLM] Failed to clean up temporary sources:', cleanupError);
+        });
+      }
     }
   }
 

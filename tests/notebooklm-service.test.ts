@@ -93,6 +93,7 @@ describe('NotebookLMService', () => {
     mockExecFileSuccess('');
     mockExecFileSuccess(JSON.stringify({ id: 'src-1' }));
     mockExecFileSuccess(JSON.stringify({ id: 'src-brief' }));
+    mockExecFileSuccess(JSON.stringify({ id: 'src-context' }));
     mockExecFileSuccess(JSON.stringify({ task_id: 'task-1' }));
 
     const service = new NotebookLMService();
@@ -100,18 +101,31 @@ describe('NotebookLMService', () => {
       title: 'Board Deck',
       prompt: 'Build a board presentation.',
       sourcePaths: [sourcePath],
+      contextMarkdown: '# Conversation Context\n\n## Assistant\n\nKey findings go here.',
     });
 
     expect(result).toMatchObject({
       status: 'ready',
       notebookId: 'nb-123',
       notebookTitle: 'Board Deck',
-      importedSources: 2,
+      importedSources: 3,
       generated: true,
     });
     expect(execFileMock).toHaveBeenCalledWith(
       expect.any(String),
       expect.arrayContaining(['generate', 'slide-deck', 'Build a board presentation.']),
+      expect.any(Object),
+      expect.any(Function)
+    );
+    expect(execFileMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining(['source', 'add', expect.stringContaining('presentation-brief.md')]),
+      expect.any(Object),
+      expect.any(Function)
+    );
+    expect(execFileMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining(['source', 'add', expect.stringContaining('conversation-context.md')]),
       expect.any(Object),
       expect.any(Function)
     );

@@ -1,4 +1,4 @@
-import type { PresentationPipeline } from '../types';
+import type { Message, PresentationPipeline } from '../types';
 
 const PRESENTATION_KEYWORDS = [
   'presentation',
@@ -169,4 +169,59 @@ export function buildNotebookLMMissingCliText(command: string): string {
 
 export function buildPresentationPipelineLabel(pipeline: PresentationPipeline): string {
   return pipeline === 'notebooklm' ? 'NotebookLM' : 'Agent';
+}
+
+function flattenMessageText(message: Message): string {
+  const parts: string[] = [];
+
+  for (const block of message.content) {
+    if (block.type === 'text' && block.text.trim()) {
+      parts.push(block.text.trim());
+    } else if (block.type === 'file_attachment' && block.filename.trim()) {
+      parts.push(`[Attachment: ${block.filename.trim()}]`);
+    }
+  }
+
+  return parts.join('\n\n').trim();
+}
+
+export function buildNotebookLMConversationContext(
+  messages: Message[],
+  options?: { maxMessages?: number; maxChars?: number }
+): string | null {
+  const maxMessages = options?.maxMessages ?? 8;
+  const maxChars = options?.maxChars ?? 12000;
+
+  const relevant = messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message) => ({
+      role: message.role,
+      text: flattenMessageText(message),
+    }))
+    .filter((message) => message.text.length > 0)
+    .slice(-maxMessages);
+
+  if (relevant.length === 0) {
+    return null;
+  }
+
+  const sections: string[] = ['# Conversation Context'];
+  let remainingChars = maxChars;
+
+  for (let index = relevant.length - 1; index >= 0; index -= 1) {
+    const message = relevant[index];
+    const heading = `## ${message.role === 'assistant' ? 'Assistant' : 'User'}`;
+    const allowance = Math.max(300, remainingChars - heading.length - 4);
+    const body = message.text.length > allowance
+      ? `${message.text.slice(0, Math.max(0, allowance - 1)).trimEnd()}…`
+      : message.text;
+    const section = `${heading}\n\n${body}`;
+    sections.splice(1, 0, section);
+    remainingChars -= section.length;
+    if (remainingChars <= 0) {
+      break;
+    }
+  }
+
+  return sections.join('\n\n').trim();
 }

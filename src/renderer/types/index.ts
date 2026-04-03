@@ -354,6 +354,7 @@ export interface NotebookLMPresentationPreparationInput {
   title: string;
   prompt: string;
   sourcePaths: string[];
+  contextMarkdown?: string;
 }
 
 export interface NotebookLMPresentationPreparationResult {

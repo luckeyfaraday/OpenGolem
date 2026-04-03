@@ -22,6 +22,7 @@ import {
   parseSlashCommand,
 } from '../utils/slash-commands';
 import {
+  buildNotebookLMConversationContext,
   buildNotebookLMHandoffText,
   buildPresentationBrief,
   getDefaultPresentationBriefDraft,
@@ -655,6 +656,7 @@ export function ChatView() {
       title: activeSession?.title || getInitialSessionTitle(trimmedPrompt),
       prompt: trimmedPrompt,
       sourcePaths,
+      contextMarkdown: buildNotebookLMConversationContext(messages) || undefined,
     });
 
     if (preparation.status === 'unavailable') {
