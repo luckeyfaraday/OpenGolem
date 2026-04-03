@@ -11,6 +11,28 @@ license: Proprietary. LICENSE.txt has complete terms
 Generates professional-grade Word documents (`.docx`) from structured input. Output is generated from the reference template at:
 `.claude/skills/docx/templates/reference.docx`
 
+## Mode Selection Rules
+
+Choose the workflow based on what the user actually provided:
+
+1. **Existing `.docx` provided and user asked to edit/revise/update it**
+   - Treat this as an **edit-in-place** task.
+   - Build on the user's document.
+   - Preserve their existing structure, wording, comments, tables, and styles unless they explicitly ask for a redesign.
+   - **Do not** switch to `.claude/skills/docx/templates/reference.docx` just because the file is a Word document.
+
+2. **No existing `.docx` provided and user wants a new polished document**
+   - Treat this as a **new document generation** task.
+   - Use `.claude/skills/docx/templates/reference.docx` and the generator script.
+
+3. **Existing `.docx` provided but user explicitly asks to restyle, rebuild, or convert it into the corporate format**
+   - You may use the reference template.
+   - Make that transformation explicit in your reasoning and output.
+
+If there is any ambiguity, ask a clarifying question before proceeding:
+- do they want edits to the uploaded document
+- or a fresh rebuilt version in the corporate template
+
 ## How to Invoke
 
 ```
@@ -18,6 +40,8 @@ Generates professional-grade Word documents (`.docx`) from structured input. Out
 ```
 
 The agent will generate a complete corporate document.
+
+If the task is to modify an existing document, do **not** use the invocation above as a reason to regenerate from scratch. Edit the provided document instead.
 
 ---
 
@@ -152,6 +176,7 @@ Sections: Executive Summary, Background on Platts MOC Mechanism, Glencore CFTC C
 ## Notes
 
 - Always use the generator script — do not manually construct docx XML
+- If the user supplied an existing `.docx` for revision, modify that file in place unless they explicitly asked for a template-based rebuild
 - Do not fabricate data in tables — use real data or mark cells as "TBD"
 - Classification levels: INTERNAL / CONFIDENTIAL / RESTRICTED / PUBLIC
 - The reference template (`reference.docx`) is the style authority — always match it

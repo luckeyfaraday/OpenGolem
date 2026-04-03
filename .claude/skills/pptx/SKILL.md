@@ -10,6 +10,29 @@ license: Proprietary. LICENSE.txt has complete terms
 
 Create, edit, or analyze the contents of .pptx files when requested. A .pptx file is essentially a ZIP archive containing XML files and other resources. Different tools and workflows are available for different tasks.
 
+## Mode Selection Rules
+
+Choose the workflow based on the user's actual artifact and intent:
+
+1. **Existing `.pptx` provided and user asked to edit/revise/update it**
+   - Treat this as an **edit-in-place** task.
+   - Preserve the user's current deck, theme, masters, layouts, and speaker notes unless they explicitly ask for redesign.
+   - Use the editing workflow or template-analysis workflow against their file.
+   - **Do not** replace their deck with `.claude/skills/pptx/templates/reference.pptx`.
+
+2. **No existing `.pptx` provided and user wants a new deck**
+   - Use the best creation path:
+     - bundled corporate template for branded decks
+     - `html2pptx` for non-template bespoke decks
+
+3. **Existing `.pptx` provided and user explicitly asks to rebuild or restyle it into the corporate template**
+   - You may use `.claude/skills/pptx/templates/reference.pptx` as the target style base.
+   - Make that transformation explicit in your reasoning and output.
+
+If there is any ambiguity, ask a clarifying question before proceeding:
+- do they want edits to the uploaded deck
+- or a fresh rebuilt version in the corporate template
+
 ## Preferred Path For Corporate Decks
 
 For a new branded presentation using the bundled OpenGolem corporate template, use:
@@ -183,6 +206,8 @@ When creating a new PowerPoint presentation from scratch, use the **html2pptx** 
 ## Editing an existing PowerPoint presentation
 
 To edit slides in an existing PowerPoint presentation, work with the raw Office Open XML (OOXML) format. This involves unpacking the .pptx file, editing the XML content, and repacking it.
+
+This is the default workflow whenever the user supplied an existing presentation and asked for modifications, unless they explicitly asked for a rebuild into another template or design system.
 
 ### Workflow
 
