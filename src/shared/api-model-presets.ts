@@ -184,6 +184,7 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     baseUrl: 'https://api.minimax.chat/v1',
     models: [
       { id: 'MiniMax-Text-01', name: 'MiniMax-Text-01' },
+      { id: 'MiniMax-M2.7', name: 'MiniMax-M2.7' },
       { id: 'MiniMax-M2.5', name: 'MiniMax-M2.5' },
       { id: 'MiniMax-M2', name: 'MiniMax-M2' },
     ],
@@ -208,7 +209,13 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
   },
   anthropic: {
     piProvider: 'anthropic',
-    pick: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-sonnet-4-5', 'claude-3-7-sonnet-latest'],
+    pick: [
+      'claude-opus-4-6',
+      'claude-sonnet-4-6',
+      'claude-haiku-4-5',
+      'claude-sonnet-4-5',
+      'claude-3-7-sonnet-latest',
+    ],
   },
   openai: {
     piProvider: 'openai',
@@ -216,19 +223,47 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
   },
   'openai-codex': {
     piProvider: 'openai-codex',
-    pick: ['gpt-5.4', 'gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.2', 'gpt-5.1-codex-max', 'gpt-5.1-codex-mini'],
+    pick: [
+      'gpt-5.4',
+      'gpt-5.3-codex',
+      'gpt-5.2-codex',
+      'gpt-5.2',
+      'gpt-5.1-codex-max',
+      'gpt-5.1-codex-mini',
+    ],
   },
   gemini: {
     piProvider: 'google',
-    pick: ['gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+    pick: [
+      'gemini-3.1-pro-preview',
+      'gemini-3-flash-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+    ],
   },
   'google-gemini-cli': {
     piProvider: 'google-gemini-cli',
-    pick: ['gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
+    pick: [
+      'gemini-3.1-pro-preview',
+      'gemini-3-pro-preview',
+      'gemini-3-flash-preview',
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+    ],
   },
   'google-antigravity': {
     piProvider: 'google-antigravity',
-    pick: ['gemini-3.1-pro-high', 'gemini-3.1-pro-low', 'gemini-3-flash', 'claude-sonnet-4-6', 'claude-opus-4-6-thinking', 'gpt-oss-120b-medium'],
+    pick: [
+      'gemini-3.1-pro-high',
+      'gemini-3.1-pro-low',
+      'gemini-3-flash',
+      'claude-sonnet-4-6',
+      'claude-opus-4-6-thinking',
+      'gpt-oss-120b-medium',
+    ],
   },
 };
 
