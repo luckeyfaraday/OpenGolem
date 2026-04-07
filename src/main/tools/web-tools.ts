@@ -35,9 +35,10 @@ export async function performWebFetch(url: string): Promise<string> {
   const contentType = response.headers.get('content-type') || 'unknown';
   const body = await response.text();
   const limit = 20000;
-  const truncated = body.length > limit
-    ? `${body.slice(0, limit)}\n\n[Truncated ${body.length - limit} chars]`
-    : body;
+  const truncated =
+    body.length > limit
+      ? `${body.slice(0, limit)}\n\n[Truncated ${body.length - limit} chars]`
+      : body;
 
   return `URL: ${parsed.toString()}\nStatus: ${response.status}\nContent-Type: ${contentType}\n\n${truncated}`;
 }
@@ -48,17 +49,21 @@ export async function performWebSearch(query: string): Promise<string> {
     throw new Error('Query is required');
   }
 
-  const searchUrl = new URL('https://api.duckduckgo.com/');
+  const apiKey = process.env.BRAVE_SEARCH_API_KEY;
+  if (!apiKey) {
+    throw new Error('BRAVE_SEARCH_API_KEY environment variable is not set');
+  }
+
+  const searchUrl = new URL('https://api.search.brave.com/res/v1/web/search');
   searchUrl.searchParams.set('q', trimmed);
-  searchUrl.searchParams.set('format', 'json');
-  searchUrl.searchParams.set('no_redirect', '1');
-  searchUrl.searchParams.set('no_html', '1');
-  searchUrl.searchParams.set('skip_disambig', '1');
 
   let response: Response;
   try {
     response = await fetch(searchUrl.toString(), {
-      headers: { 'User-Agent': 'open-cowork' },
+      headers: {
+        Accept: 'application/json',
+        'X-Subscription-Token': apiKey,
+      },
       signal: AbortSignal.timeout(10000),
     });
   } catch (error) {
@@ -72,46 +77,38 @@ export async function performWebSearch(query: string): Promise<string> {
     throw new Error(`Search request failed with status ${response.status}`);
   }
 
-  const data = await response.json() as Record<string, unknown>;
-  const heading = typeof data.Heading === 'string' ? data.Heading : '';
-  const abstractText = typeof data.AbstractText === 'string' ? data.AbstractText : '';
-  const relatedTopics = Array.isArray(data.RelatedTopics) ? data.RelatedTopics : [];
+  const data = (await response.json()) as Record<string, unknown>;
 
-  type TopicItem = { text: string; url?: string };
-  const results: TopicItem[] = [];
+  type WebResult = { url: string; title: string; description: string };
+  const results: WebResult[] = [];
 
-  const collectTopics = (topic: unknown): void => {
-    if (!topic || typeof topic !== 'object') return;
-    const record = topic as Record<string, unknown>;
-    const text = typeof record.Text === 'string' ? record.Text : '';
-    const firstUrl = typeof record.FirstURL === 'string' ? record.FirstURL : '';
-    if (text) {
-      results.push({ text, url: firstUrl || undefined });
+  const web = data.web as Record<string, unknown> | undefined;
+  if (web && Array.isArray(web.results)) {
+    for (const item of web.results as unknown[]) {
+      if (item && typeof item === 'object') {
+        const r = item as Record<string, unknown>;
+        results.push({
+          url: typeof r.url === 'string' ? r.url : '',
+          title: typeof r.title === 'string' ? r.title : '',
+          description: typeof r.description === 'string' ? r.description : '',
+        });
+      }
     }
-    const nested = Array.isArray(record.Topics) ? record.Topics : [];
-    for (const nestedItem of nested) {
-      collectTopics(nestedItem);
-    }
-  };
-
-  for (const topic of relatedTopics) {
-    collectTopics(topic);
   }
 
   const lines: string[] = [];
   lines.push(`Query: ${trimmed}`);
-  lines.push('Source: DuckDuckGo Instant Answer');
-  if (heading) lines.push(`Heading: ${heading}`);
-  if (abstractText) lines.push(`Abstract: ${abstractText}`);
+  lines.push('Source: Brave Search');
 
   const topResults = results.slice(0, 5);
   if (topResults.length > 0) {
     lines.push('Results:');
     for (const item of topResults) {
-      lines.push(`- ${item.text}${item.url ? ` (${item.url})` : ''}`);
+      lines.push(`- ${item.title} (${item.url})`);
+      if (item.description) lines.push(`  ${item.description}`);
     }
-  } else if (!abstractText) {
-    lines.push('Results: No related topics found.');
+  } else {
+    lines.push('Results: No results found.');
   }
 
   const output = lines.join('\n');

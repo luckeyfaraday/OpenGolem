@@ -165,6 +165,9 @@
     "enableThinking": "Enable Thinking Mode",
     "enableThinkingHint": "Show Claude's thinking process step by step. This provides more transparency but may increase token usage.",
     "enableThinkingOllamaHint": "Most Ollama models do not support thinking mode. Enable only if your model explicitly supports it.",
+    "braveSearchApiKey": "Brave Search API Key",
+    "braveSearchApiKeyDescription": "Required for web search functionality. Get a free API key at brave.com/search/api.",
+    "braveSearchApiKeyPlaceholder": "Enter your Brave Search API key",
     "testSuccess": "Connection successful ({{ms}}ms)",
     "testSuccessNeedSave": "Connection test passed. Save settings before starting a session.",
     "testError": {

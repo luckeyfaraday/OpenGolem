@@ -111,7 +111,7 @@
     "provider": "提供商",
     "providerDescription": "为当前工作区选择提供商。有些使用 OAuth，有些使用 API Key。",
     "oauthProviders": "OAuth 提供商",
-    "apiProviders": "API 提供商", 
+    "apiProviders": "API 提供商",
     "apiKey": "API 密钥",
     "enterApiKey": "输入你的 API Key",
     "apiKeyDescription": "仅保存在本地，并绑定到当前配置方案。",
@@ -165,6 +165,9 @@
     "enableThinking": "启用思考模式",
     "enableThinkingHint": "显示 Claude 的思考过程。这提供更多透明度，但可能增加 token 消耗。",
     "enableThinkingOllamaHint": "大多数 Ollama 模型不支持思考模式，仅在模型明确支持时启用。",
+    "braveSearchApiKey": "Brave Search API 密钥",
+    "braveSearchApiKeyDescription": "启用网页搜索功能。前往 brave.com/search/api 获取免费 API 密钥。",
+    "braveSearchApiKeyPlaceholder": "输入您的 Brave Search API 密钥",
     "testSuccess": "连接成功（{{ms}}ms）",
     "testSuccessNeedSave": "连接测试成功，请点击“保存设置”后再开始会话。",
     "testError": {

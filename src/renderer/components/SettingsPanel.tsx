@@ -508,6 +508,8 @@ function APISettingsTab() {
     toggleCustomModel,
     clearPricingOverride,
     setEnableThinking,
+    braveSearchApiKey,
+    setBraveSearchApiKey,
     applyCommonProviderSetup,
     changeProvider,
     changeProtocol,
@@ -574,7 +576,9 @@ function APISettingsTab() {
               {t('api.oauthProviders')}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-              {(['openai-codex', 'google-gemini-cli', 'google-antigravity', 'qwen-cli'] as const).map((p) => (
+              {(
+                ['openai-codex', 'google-gemini-cli', 'google-antigravity', 'qwen-cli'] as const
+              ).map((p) => (
                 <button
                   key={p}
                   onClick={() => changeProvider(p)}
@@ -596,7 +600,17 @@ function APISettingsTab() {
               {t('api.apiProviders')}
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
-              {(['openrouter', 'anthropic', 'openai', 'gemini', 'ollama', 'minimax', 'custom'] as const).map((p) => (
+              {(
+                [
+                  'openrouter',
+                  'anthropic',
+                  'openai',
+                  'gemini',
+                  'ollama',
+                  'minimax',
+                  'custom',
+                ] as const
+              ).map((p) => (
                 <button
                   key={p}
                   onClick={() => changeProvider(p)}
@@ -623,7 +637,9 @@ function APISettingsTab() {
           </label>
           <p className="text-xs leading-5 text-text-muted">{t('api.oauthDescription')}</p>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className={`rounded-full px-3 py-1 text-xs font-medium ${oauthStatus?.connected ? 'bg-success/10 text-success' : 'bg-surface-hover text-text-secondary'}`}>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-medium ${oauthStatus?.connected ? 'bg-success/10 text-success' : 'bg-surface-hover text-text-secondary'}`}
+            >
               {oauthStatus?.connected ? t('api.oauthConnected') : t('api.oauthDisconnected')}
             </span>
             {oauthStatus?.email && <span className="text-text-secondary">{oauthStatus.email}</span>}
@@ -879,7 +895,8 @@ function APISettingsTab() {
           Pricing override
         </label>
         <p className="text-xs leading-5 text-text-muted">
-          Optional. Set custom USD per 1M token pricing for the current provider/model when built-in pricing is unavailable or you want to override it.
+          Optional. Set custom USD per 1M token pricing for the current provider/model when built-in
+          pricing is unavailable or you want to override it.
         </p>
         <div className="rounded-lg border border-border-muted bg-background/40 px-4 py-3 text-xs text-text-muted">
           Target: {currentPricingOverrideKey || 'Select a model first'}
@@ -945,6 +962,22 @@ function APISettingsTab() {
             )}
           </label>
         </div>
+      </div>
+
+      {/* Brave Search API Key */}
+      <div className="space-y-3 py-5 border-b border-border-muted">
+        <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
+          <Key className="w-4 h-4" />
+          {t('api.braveSearchApiKey')}
+        </label>
+        <p className="text-xs leading-5 text-text-muted">{t('api.braveSearchApiKeyDescription')}</p>
+        <input
+          type="password"
+          value={braveSearchApiKey}
+          onChange={(e) => setBraveSearchApiKey(e.target.value)}
+          placeholder={t('api.braveSearchApiKeyPlaceholder')}
+          className="w-full px-4 py-3 rounded-lg bg-background border border-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+        />
       </div>
 
       {/* Error/Success Messages */}
@@ -1619,7 +1652,9 @@ function StatusItem({
 function CredentialsTab() {
   const { t } = useTranslation();
   const tRef = useRef(t);
-  useEffect(() => { tRef.current = t; }, [t]);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [credentials, setCredentials] = useState<UserCredential[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1991,7 +2026,9 @@ function CredentialForm({
 function ConnectorsTab({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
   const tRef = useRef(t);
-  useEffect(() => { tRef.current = t; }, [t]);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [servers, setServers] = useState<MCPServerConfig[]>([]);
   const [statuses, setStatuses] = useState<MCPServerStatus[]>([]);
   const [tools, setTools] = useState<MCPToolInfo[]>([]);
@@ -2869,7 +2906,9 @@ function ServerForm({
 function SkillsTab({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
   const tRef = useRef(t);
-  useEffect(() => { tRef.current = t; });
+  useEffect(() => {
+    tRef.current = t;
+  });
   const skillsStorageChangedAt = useAppStore((state) => state.skillsStorageChangedAt);
   const skillsStorageChangeEvent = useAppStore((state) => state.skillsStorageChangeEvent);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -2953,55 +2992,52 @@ function SkillsTab({ isActive }: { isActive: boolean }) {
     }, 5000);
   }
 
-  const loadSkills = useCallback(
-    async (silent = false) => {
-      try {
-        const [skillsResult, storagePathResult] = await Promise.allSettled([
-          window.electronAPI.skills.getAll(),
-          window.electronAPI.skills.getStoragePath(),
-        ]);
-        const errors: string[] = [];
+  const loadSkills = useCallback(async (silent = false) => {
+    try {
+      const [skillsResult, storagePathResult] = await Promise.allSettled([
+        window.electronAPI.skills.getAll(),
+        window.electronAPI.skills.getStoragePath(),
+      ]);
+      const errors: string[] = [];
 
-        if (skillsResult.status === 'fulfilled') {
-          setSkills(skillsResult.value || []);
-        } else {
-          errors.push(
-            skillsResult.reason instanceof Error
-              ? skillsResult.reason.message
-              : tRef.current('skills.failedToLoad')
-          );
-        }
-        if (storagePathResult.status === 'fulfilled') {
-          setStoragePath(storagePathResult.value || '');
-        } else {
-          errors.push(
-            storagePathResult.reason instanceof Error
-              ? storagePathResult.reason.message
-              : tRef.current('skills.storagePathUnavailable')
-          );
-        }
-
-        if (errors.length > 0) {
-          throw new Error(errors.join(' | '));
-        }
-
-        if (!silent) {
-          setError(null);
-        }
-      } catch (err) {
-        console.error('Failed to load skills:', err);
-        if (!silent) {
-          setError({
-            text:
-              err instanceof Error && err.message
-                ? `${tRef.current('skills.failedToLoad')}: ${err.message}`
-                : tRef.current('skills.failedToLoad'),
-          });
-        }
+      if (skillsResult.status === 'fulfilled') {
+        setSkills(skillsResult.value || []);
+      } else {
+        errors.push(
+          skillsResult.reason instanceof Error
+            ? skillsResult.reason.message
+            : tRef.current('skills.failedToLoad')
+        );
       }
-    },
-    []
-  );
+      if (storagePathResult.status === 'fulfilled') {
+        setStoragePath(storagePathResult.value || '');
+      } else {
+        errors.push(
+          storagePathResult.reason instanceof Error
+            ? storagePathResult.reason.message
+            : tRef.current('skills.storagePathUnavailable')
+        );
+      }
+
+      if (errors.length > 0) {
+        throw new Error(errors.join(' | '));
+      }
+
+      if (!silent) {
+        setError(null);
+      }
+    } catch (err) {
+      console.error('Failed to load skills:', err);
+      if (!silent) {
+        setError({
+          text:
+            err instanceof Error && err.message
+              ? `${tRef.current('skills.failedToLoad')}: ${err.message}`
+              : tRef.current('skills.failedToLoad'),
+        });
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (!isElectron || !isActive) {

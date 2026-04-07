@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import type {
@@ -54,6 +62,7 @@ interface ConfigStateSnapshot {
   profiles: Record<ProviderProfileKey, UIProviderProfile>;
   enableThinking: boolean;
   pricingOverrides: Record<string, PricingOverride>;
+  braveSearchApiKey?: string;
 }
 
 interface ApiConfigBootstrap {
@@ -371,9 +380,8 @@ function normalizeProfile(
   );
   return {
     apiKey: profile?.apiKey || '',
-    baseUrl: profileKey === 'ollama'
-      ? (normalizeOllamaBaseUrl(rawBaseUrl) || fallback.baseUrl)
-      : rawBaseUrl,
+    baseUrl:
+      profileKey === 'ollama' ? normalizeOllamaBaseUrl(rawBaseUrl) || fallback.baseUrl : rawBaseUrl,
     model: hasPresetModel ? modelValue : fallback.model,
     customModel: hasPresetModel ? '' : modelValue,
     useCustomModel: !hasPresetModel,
@@ -440,6 +448,7 @@ export function buildApiConfigSnapshot(
     profiles,
     enableThinking: Boolean(config?.enableThinking),
     pricingOverrides: normalizePricingOverrides(config?.pricingOverrides),
+    braveSearchApiKey: config?.braveSearchApiKey,
   };
 }
 
@@ -696,6 +705,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
         : 'anthropic'
   );
   const [enableThinking, setEnableThinking] = useState(Boolean(initialConfig?.enableThinking));
+  const [braveSearchApiKey, setBraveSearchApiKey] = useState(
+    initialConfig?.braveSearchApiKey || ''
+  );
   const [discoveredModels, setDiscoveredModels] = useState<
     Partial<Record<ProviderProfileKey, ProviderModelInfo[]>>
   >({});
@@ -723,7 +735,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const [testResult, setTestResult] = useState<ApiTestResult | null>(null);
   const [diagnosticResult, setDiagnosticResult] = useState<DiagnosticResult | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
-  const [oauthStatuses, setOAuthStatuses] = useState<Partial<Record<ProviderType, OAuthProviderStatus>>>({});
+  const [oauthStatuses, setOAuthStatuses] = useState<
+    Partial<Record<ProviderType, OAuthProviderStatus>>
+  >({});
   const [isAuthenticatingOAuth, setIsAuthenticatingOAuth] = useState(false);
   const ollamaRefreshRequestIdRef = useRef(0);
   const latestOllamaTargetRef = useRef<{
@@ -787,9 +801,10 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const modelPreset = modelPresetForProfile(activeProfileKey, presets);
   const currentPreset = modelPreset;
   const hasDiscoveredOllamaModels =
-    provider === 'ollama' && Object.prototype.hasOwnProperty.call(discoveredModels, activeProfileKey);
+    provider === 'ollama' &&
+    Object.prototype.hasOwnProperty.call(discoveredModels, activeProfileKey);
   const modelOptions = hasDiscoveredOllamaModels
-    ? (discoveredModels[activeProfileKey] || [])
+    ? discoveredModels[activeProfileKey] || []
     : modelPreset.models;
   const modelInputGuidance = getModelInputGuidance(provider, customProtocol);
 
@@ -812,15 +827,15 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const useCustomModel = currentProfile.useCustomModel;
   const contextWindow = currentProfile.contextWindow;
   const maxTokens = currentProfile.maxTokens;
-  const currentResolvedModel = useCustomModel ? (customModel.trim() || model) : model;
+  const currentResolvedModel = useCustomModel ? customModel.trim() || model : model;
   const currentPricingOverrideKey = currentResolvedModel.trim()
     ? buildPricingOverrideKey(provider, currentResolvedModel)
     : '';
   const currentPricingOverrideDraft = currentPricingOverrideKey
-    ? (pricingOverrideDrafts[currentPricingOverrideKey] || {
+    ? pricingOverrideDrafts[currentPricingOverrideKey] || {
         inputPerMillionUsd: '',
         outputPerMillionUsd: '',
-      })
+      }
     : {
         inputPerMillionUsd: '',
         outputPerMillionUsd: '',
@@ -977,9 +992,15 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const requiresApiKey = !allowEmptyApiKey;
   const hasRequiredCredentials = isOAuthProvider(provider)
     ? Boolean(oauthStatus?.connected)
-    : (!requiresApiKey || Boolean(apiKey.trim()));
+    : !requiresApiKey || Boolean(apiKey.trim());
   const currentDraftSignature = useMemo(
-    () => buildApiConfigDraftSignature(activeProfileKey, profiles, enableThinking, pricingOverrideDrafts),
+    () =>
+      buildApiConfigDraftSignature(
+        activeProfileKey,
+        profiles,
+        enableThinking,
+        pricingOverrideDrafts
+      ),
     [activeProfileKey, profiles, enableThinking, pricingOverrideDrafts]
   );
   const hasUnsavedChanges =
@@ -1302,7 +1323,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
 
   const handleTest = useCallback(async () => {
     if (!hasRequiredCredentials) {
-      showErrorKey(isOAuthProvider(provider) ? 'api.oauthLoginRequired' : 'api.testError.missing_key');
+      showErrorKey(
+        isOAuthProvider(provider) ? 'api.oauthLoginRequired' : 'api.testError.missing_key'
+      );
       return;
     }
 
@@ -1367,7 +1390,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
 
   const handleDiagnose = useCallback(async () => {
     if (!hasRequiredCredentials) {
-      showErrorKey(isOAuthProvider(provider) ? 'api.oauthLoginRequired' : 'api.testError.missing_key');
+      showErrorKey(
+        isOAuthProvider(provider) ? 'api.oauthLoginRequired' : 'api.testError.missing_key'
+      );
       return;
     }
 
@@ -1474,10 +1499,10 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
 
       const latestTarget = latestOllamaTargetRef.current;
       if (
-        requestId !== ollamaRefreshRequestIdRef.current
-        || latestTarget.provider !== 'ollama'
-        || latestTarget.activeProfileKey !== requestedProfileKey
-        || latestTarget.baseUrl !== requestedBaseUrl
+        requestId !== ollamaRefreshRequestIdRef.current ||
+        latestTarget.provider !== 'ollama' ||
+        latestTarget.activeProfileKey !== requestedProfileKey ||
+        latestTarget.baseUrl !== requestedBaseUrl
       ) {
         return models;
       }
@@ -1500,10 +1525,10 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     } catch (refreshError) {
       const latestTarget = latestOllamaTargetRef.current;
       if (
-        requestId !== ollamaRefreshRequestIdRef.current
-        || latestTarget.provider !== 'ollama'
-        || latestTarget.activeProfileKey !== requestedProfileKey
-        || latestTarget.baseUrl !== requestedBaseUrl
+        requestId !== ollamaRefreshRequestIdRef.current ||
+        latestTarget.provider !== 'ollama' ||
+        latestTarget.activeProfileKey !== requestedProfileKey ||
+        latestTarget.baseUrl !== requestedBaseUrl
       ) {
         return [];
       }
@@ -1549,7 +1574,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
         const hasPresetMatch = models.some((item) => item.id === currentPresetModel);
         const autoSelectModelId = options?.autoSelectModelId?.trim() || '';
         const shouldAdoptFirstPresetModel =
-          !current.useCustomModel && Boolean(autoSelectModelId) && (!currentPresetModel || !hasPresetMatch);
+          !current.useCustomModel &&
+          Boolean(autoSelectModelId) &&
+          (!currentPresetModel || !hasPresetMatch);
 
         return {
           ...prev,
@@ -1591,10 +1618,10 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
         });
         const latestTarget = latestOllamaTargetRef.current;
         if (
-          requestId !== ollamaDiscoverRequestIdRef.current
-          || latestTarget.provider !== 'ollama'
-          || latestTarget.activeProfileKey !== requestedProfileKey
-          || latestTarget.baseUrl !== requestedBaseUrl
+          requestId !== ollamaDiscoverRequestIdRef.current ||
+          latestTarget.provider !== 'ollama' ||
+          latestTarget.activeProfileKey !== requestedProfileKey ||
+          latestTarget.baseUrl !== requestedBaseUrl
         ) {
           return result;
         }
@@ -1632,10 +1659,10 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
       } catch (discoveryError) {
         const latestTarget = latestOllamaTargetRef.current;
         if (
-          requestId !== ollamaDiscoverRequestIdRef.current
-          || latestTarget.provider !== 'ollama'
-          || latestTarget.activeProfileKey !== requestedProfileKey
-          || latestTarget.baseUrl !== requestedBaseUrl
+          requestId !== ollamaDiscoverRequestIdRef.current ||
+          latestTarget.provider !== 'ollama' ||
+          latestTarget.activeProfileKey !== requestedProfileKey ||
+          latestTarget.baseUrl !== requestedBaseUrl
         ) {
           return null;
         }
@@ -1747,7 +1774,9 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
   const handleSave = useCallback(
     async (options?: { silentSuccess?: boolean }) => {
       if (!hasRequiredCredentials) {
-        showErrorKey(isOAuthProvider(provider) ? 'api.oauthLoginRequired' : 'api.testError.missing_key');
+        showErrorKey(
+          isOAuthProvider(provider) ? 'api.oauthLoginRequired' : 'api.testError.missing_key'
+        );
         return false;
       }
 
@@ -1784,6 +1813,7 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
           activeConfigSetId,
           pricingOverrides: persistedPricingOverrides,
           enableThinking,
+          braveSearchApiKey: braveSearchApiKey.trim() || undefined,
         };
 
         if (onSave) {
@@ -2147,6 +2177,8 @@ export function useApiConfigState(options: UseApiConfigStateOptions = {}) {
     toggleCustomModel,
     clearPricingOverride,
     setEnableThinking,
+    braveSearchApiKey,
+    setBraveSearchApiKey,
     applyCommonProviderSetup,
     changeProvider,
     changeProtocol,
