@@ -2,10 +2,10 @@
   <img src="resources/logo.png" alt="OpenGolem Logo" width="280" />
 </p>
 
-<h1 align="center">OpenGolem — Open-Source Claude Cowork with OAuth</h1>
+<h1 align="center">OpenGolem — Open-Source Desktop AI Coding Agent</h1>
 
 <p align="center">
-  Open-source Claude Cowork for Windows and macOS — a Claude Cowork alternative with OAuth support for Gemini, Codex, and Antigravity.
+  OpenGolem is an open-source desktop AI coding agent and Claude Cowork alternative for Windows and macOS — with OAuth support for Gemini, Codex, and Antigravity, local workspace isolation, built-in skills, and MCP tool support.
 </p>
 
 <p align="center">
@@ -48,6 +48,7 @@ If you are searching for terms like **cowork OAuth**, **Claude OAuth**, **open-s
 ---
 
 <a id="features"></a>
+
 ## Features
 
 ### Core positioning
@@ -102,6 +103,7 @@ If you are searching for terms like **cowork OAuth**, **Claude OAuth**, **open-s
 ---
 
 <a id="installation"></a>
+
 ## Download
 
 ### Option 1: Download Installer
@@ -110,10 +112,10 @@ Get the latest version from this repository’s **Releases** page.
 
 If you want an **open-source Claude Cowork app**, a **desktop AI app with OAuth**, or a **Claude Cowork alternative** you can download and run locally, start here.
 
-| Platform | File Type |
-|----------|-----------|
-| **Windows** | `.exe` |
-| **macOS** (Apple Silicon) | `.dmg` |
+| Platform                  | File Type |
+| ------------------------- | --------- |
+| **Windows**               | `.exe`    |
+| **macOS** (Apple Silicon) | `.dmg`    |
 
 ### Option 2: Build from Source
 
@@ -148,17 +150,18 @@ For tagged release builds, the workflow syncs the packaged app version from the 
 
 OpenGolem supports multiple isolation levels:
 
-| Level | Platform | Technology | Description |
-|-------|----------|------------|-------------|
-| **Basic** | All | Path Guard | File operations restricted to the selected workspace |
-| **Enhanced** | Windows | WSL2 | Commands execute in an isolated Linux VM |
-| **Enhanced** | macOS | Lima | Commands execute in an isolated Linux VM |
+| Level        | Platform | Technology | Description                                          |
+| ------------ | -------- | ---------- | ---------------------------------------------------- |
+| **Basic**    | All      | Path Guard | File operations restricted to the selected workspace |
+| **Enhanced** | Windows  | WSL2       | Commands execute in an isolated Linux VM             |
+| **Enhanced** | macOS    | Lima       | Commands execute in an isolated Linux VM             |
 
 ### Windows
 
 When **WSL2** is available, Bash commands are routed through an isolated Linux VM and the workspace is synced bidirectionally.
 
 Install WSL if needed:
+
 - <https://docs.microsoft.com/en-us/windows/wsl/install>
 
 ### macOS
@@ -174,26 +177,30 @@ brew install lima
 ---
 
 <a id="quick-start"></a>
+
 ## Quick Start
 
 ### 1. Choose how you want to authenticate
 
 #### OAuth providers
+
 Use your existing accounts for:
+
 - **Gemini**
 - **Codex**
 - **Antigravity**
 
 #### API providers
+
 For other providers, configure them with API credentials.
 
-| Provider | Base URL | Example Models |
-|----------|----------|----------------|
-| **OpenRouter** | `https://openrouter.ai/api` | OpenRouter-supported models |
-| **Anthropic** | default | Claude models |
-| **Zhipu AI (GLM)** | `https://open.bigmodel.cn/api/anthropic` | `glm-4.7`, `glm-4.6` |
-| **MiniMax** | `https://api.minimaxi.com/anthropic` | `minimax-m2` |
-| **Kimi** | `https://api.kimi.com/coding/` | `kimi-k2` |
+| Provider           | Base URL                                 | Example Models              |
+| ------------------ | ---------------------------------------- | --------------------------- |
+| **OpenRouter**     | `https://openrouter.ai/api`              | OpenRouter-supported models |
+| **Anthropic**      | default                                  | Claude models               |
+| **Zhipu AI (GLM)** | `https://open.bigmodel.cn/api/anthropic` | `glm-4.7`, `glm-4.6`        |
+| **MiniMax**        | `https://api.minimaxi.com/anthropic`     | `minimax-m2`                |
+| **Kimi**           | `https://api.kimi.com/coding/`           | `kimi-k2`                   |
 
 ### 2. Configure the app
 
@@ -213,6 +220,7 @@ Example prompt:
 ### Notes
 
 #### macOS gatekeeper
+
 If macOS blocks the app, go to **System Settings → Privacy & Security** and choose **Open Anyway**.
 
 If needed:
@@ -222,14 +230,17 @@ sudo xattr -rd com.apple.quarantine "/Applications/OpenGolem.app"
 ```
 
 #### Network access
+
 For networked tools such as web search or remote connectors, your proxy/network setup may need TUN / virtual interface support.
 
 #### Notion connector
+
 If you use Notion integrations, you may need to configure both the token and the page-level connection permissions.
 
 ---
 
 <a id="skills"></a>
+
 ## Built-in skills
 
 OpenGolem ships with built-in skills under `.claude/skills/`, including:
@@ -243,6 +254,7 @@ OpenGolem ships with built-in skills under `.claude/skills/`, including:
 ---
 
 <a id="architecture"></a>
+
 ## Architecture
 
 ```text
@@ -268,6 +280,7 @@ open-golem/
 ---
 
 <a id="contributing"></a>
+
 ## Contributing
 
 Contributions are welcome.

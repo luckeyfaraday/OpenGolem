@@ -1,7 +1,24 @@
 {
   "name": "open-golem",
   "version": "1.0.0-beta.2",
-  "description": "Desktop Agent application with sandboxed environment for AI Agent interaction",
+  "description": "OpenGolem - Open-source desktop AI coding agent with Claude, OAuth support, local workspace isolation, skills, and MCP tools for Windows and macOS",
+  "keywords": [
+    "ai-coding-agent",
+    "claude",
+    "claude-code",
+    "desktop-ai-app",
+    "oauth",
+    "openai",
+    "anthropic",
+    "gemini",
+    "local-ai",
+    "coding-assistant",
+    "ai-agent",
+    "mcp",
+    "desktop-app",
+    "electron"
+  ],
+  "homepage": "https://github.com/luckeyfaraday/OpenGolem",
   "main": "dist-electron/main/index.js",
   "scripts": {
     "build:icons": "node scripts/build-icons.js",
