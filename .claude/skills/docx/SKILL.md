@@ -53,6 +53,52 @@ If the task is to modify an existing document, do **not** use the invocation abo
 
 ---
 
+## Review / Validation Utilities
+
+The skill now also includes document review and validation helpers for existing Office files.
+
+### Accept tracked changes in a reviewed `.docx`
+
+Use:
+
+```bash
+python3 .claude/skills/docx/scripts/accept_changes.py input_reviewed.docx output_clean.docx
+```
+
+What it does:
+- uses LibreOffice (`soffice`) in headless mode
+- accepts all tracked changes
+- writes a clean output document
+
+### Validate unpacked or packed Office files
+
+Run the validator from inside the `office` script directory so its relative imports resolve cleanly:
+
+```bash
+cd .claude/skills/docx/scripts/office
+python3 validate.py /absolute/path/to/file.docx --original /absolute/path/to/original.docx --author "Claude"
+```
+
+You can also validate an unpacked Office directory:
+
+```bash
+cd .claude/skills/docx/scripts/office
+python3 validate.py /absolute/path/to/unpacked_docx_dir --original /absolute/path/to/original.docx
+```
+
+Useful flags:
+- `--auto-repair` to fix common XML issues automatically
+- `--verbose` for detailed output
+- `--author` to control tracked-change validation assumptions
+
+### What these utilities add
+- tracked-change cleanup
+- XML/schema validation for Office documents
+- redlining validation for `.docx` review flows
+- LibreOffice-aware execution helpers for sandboxed environments
+
+---
+
 ## Document Structure
 
 Every generated document follows this structure:

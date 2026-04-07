@@ -99,3 +99,4 @@ DEV_LOG.md
 
 .build-cache/
 .cowork-user-data/
+.reference/
